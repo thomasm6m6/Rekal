@@ -246,8 +246,7 @@ func capture(lastRecord: Record? = nil) async -> Record? {
 
             // FIXME hideous
             if app.bundleIdentifier == "com.google.Chrome" {
-                if let lastRecord = lastRecord {
-                    let lastTitle = lastRecord.windowInfo["title"] as! String
+                if let lastRecord = lastRecord, let lastTitle = lastRecord.windowInfo["title"] as? String {
                     if window.title != lastTitle {
                         if let url = getBrowserURL() {
                             windowInfo["url"] = url
