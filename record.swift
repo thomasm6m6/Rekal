@@ -3,6 +3,8 @@ import CoreGraphics
 import ScreenCaptureKit
 import Accelerate // why is this here?
 
+// TODO sqlite
+
 struct Record {
     var image: CGImage
     var time: Int
