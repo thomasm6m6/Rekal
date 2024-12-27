@@ -1,9 +1,13 @@
 import subprocess
-import time
-import datetime
+from datetime import datetime, timezone, timedelta
 import os
+import sys
 from pathlib import Path
 
+import pprint
+pp = pprint.PrettyPrinter(indent=2)
+
+datadir = Path.home() / "ss"
 
 def ocr(fpath):
     cmd = ["ocr", str(fpath / "image.png")]
@@ -23,86 +27,50 @@ def utc_today():
     dt = datetime.datetime.now(datetime.UTC)
     return dt
 
-def encode():
-    count = 0
-
-    # FIXME code is still defining start of day relative to localtime instead of UTC apparently
-    make_partial_today = True # DBG
-    datadir = Path.home() / "ss"
-    start_files = []
-
-    dirs = sorted(os.listdir(datadir))
-    dirs2 = []
-    for i in range(len(dirs)):
-        fpath = datadir / dirs[i]
-        if not os.path.isdir(fpath):
+def encode(pprint=False):
+    files = {}
+    for d in datadir.iterdir():
+        if not d.is_dir():
             continue
-        dirs2.append(dirs[i])
-    dirs = dirs2
+        n = int(d.name)
+        # n//86400 % 2 * 86400 == 0 or 86400
+        day = (n - n//86400 % 2 * 86400) // 86400
+        if day in files:
+            files[day].append(d)
+        else:
+            files[day] = [d]
 
-    for i in range(len(dirs)-1):
-        fpath = datadir / dirs[i]
-        fpath_next = datadir / dirs[i+1]
+    for key in files:
+        files[key] = sorted(files[key], key=lambda d: int(d.name))
 
-        date = dir_to_date(fpath)
-        date_next = dir_to_date(fpath_next)
+    if pprint:
+        pp.pprint(files)
+    return files
 
-        if i == 0:
-            start_files.append(fpath)
-        
-        if not same_date(date, date_next):
-            start_files.append(fpath_next)
+def make_mp4s():
+    files = encode()
+    list_txt = str(datadir / "list.txt")
+    for key in files:
+        mp4 = datadir / (str(key) + ".mp4")
+        if mp4.exists():
+            print(f"{mp4} exists; skipping...")
+            continue
 
-        ocr(fpath)
-        count += 1
-        if count > 5:
-            break
+        with open(list_txt, 'w') as f:
+            for d in files[key]:
+                f.write(f"file '{d}/image.png'\nduration 0.05\n")
 
-    # while i < len(dirs):
-    #     fpath = datadir / dirs[i]
-    #     i += 1
-
-    #     if not os.path.isdir(fpath):
-    #         continue
-
-    #     date = dir_to_date(fpath)
-    #     if same_date(date, utc_today()):
-    #         if not make_partial_today:
-    #             break
-    #         # TODO should instead just wait until the next day instead of exiting loop
-
-    #     mp4 = datadir / (date.replace(hour=0, minute=0, second=0).strftime("%s") + ".mp4")
-    #     if mp4.exists():
-    #         if not same_date(date, utc_today()) or not make_partial_today:
-    #             continue
-
-    #     files = [fpath / "image.png"]
-    #     while i < len(dirs):
-    #         fpath2 = datadir / dirs[i]
-    #         i += 1
-
-    #         if not os.path.isdir(fpath2):
-    #             continue
-
-    #         date2 = dir_to_date(fpath2)
-    #         if not same_date(date, date2):
-    #             break
-
-    #         files.append(fpath2 / "image.png")
-
-    #     with open(datadir / "list.txt", 'w') as f:
-    #         for file in files:
-    #             f.write(f"file '{file}'\nduration 0.05\n")
-
-    #     # -vf scale=(480*iw/ih+2):480 -preset slow -crf 28
-    #     cmd = ["ffmpeg", "-y", "-hide_banner", "-f", "concat", "-safe", "0",
-    #            "-i", str(datadir / "list.txt"), "-c:v", "libx265",
-    #            "-pix_fmt", "yuv420p", "-vf", "crop=iw:ih-1", str(mp4)]
-    #     subprocess.run(cmd)
-
+        # -vf scale=(480*iw/ih+2):480 -preset slow -crf 28
+        cmd = ["ffmpeg", "-y", "-hide_banner", "-f", "concat", "-safe", "0",
+               "-i", list_txt, "-c:v", "libx265",
+               "-pix_fmt", "yuv420p", "-vf", "crop=iw:ih-1", str(mp4)]
+        subprocess.run(cmd)
 
 def main():
-    encode()
+    if len(sys.argv) > 1 and sys.argv[1] == 'd':
+        encode(pprint=True)
+    else:
+        make_mp4s()
 
 
 if __name__ == "__main__":
