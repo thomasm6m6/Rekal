@@ -4,6 +4,7 @@ import ScreenCaptureKit
 import Accelerate // why is this here?
 
 // TODO sqlite
+// maybe don't capture the screen at all while FaceTime is running/is the active window
 
 struct Record {
     var image: CGImage
@@ -54,7 +55,7 @@ enum SaveRecordError: Error {
 func saveRecord(_ record: Record) throws {
     // TODO think about the possibility of a race condition--two workers trying to write to the same timestamp directory
     let homeDir = FileManager.default.homeDirectoryForCurrentUser
-    let dir = homeDir.appendingPathComponent("ss/\(record.time)")
+    let dir = homeDir.appendingPathComponent("ss/img/\(record.time)")
     let filePath = dir.appendingPathComponent("image.png")
     let jsonFilePath = dir.appendingPathComponent("info.json")
 
