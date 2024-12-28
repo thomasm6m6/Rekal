@@ -5,126 +5,193 @@ import UniformTypeIdentifiers
 
 // Video frame extraction service
 class VideoFrameExtractor {
-    static func extractFrames(from videoURL: URL) async throws -> [CGImage] {
-        let asset = AVAsset(url: videoURL)
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
+    static func extractFrames2(date: Date) throws {
+        // Convert date to filename format (assuming filename is Unix timestamp)
+        let timestamp = Int(date.timeIntervalSince1970)
+        let videoURL = URL(fileURLWithPath: "/Users/tm/ss/small/\(timestamp).mp4")
         
-        // Get video duration and calculate frame times
-        let duration = try await asset.load(.duration)
-        let seconds = duration.seconds
-        let frameRate = 20.0
-        let times = stride(from: 0.0, to: seconds, by: frameRate).map {
-            CMTime(seconds: $0, preferredTimescale: 600)
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        print("Using temp dir: \(tempDir.path)")
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
+        process.arguments = [
+            "-nostdin",
+            "-v", "error",
+            "-i", videoURL.path,
+            "\(tempDir.path)/frame-%04d.png"
+        ]
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            print("FFmpeg failed: \(error)")
         }
+    }
+
+    // static func extractFrames(from videoURL: URL) async throws -> [CGImage] {
+    //     let asset = AVAsset(url: videoURL)
+    //     let generator = AVAssetImageGenerator(asset: asset)
+    //     generator.appliesPreferredTrackTransform = true
         
-        var images: [CGImage] = []
+    //     // Get video duration and calculate frame times
+    //     let duration = try await asset.load(.duration)
+    //     let seconds = duration.seconds
+    //     let frameRate = 20.0
+    //     let times = stride(from: 0.0, to: seconds, by: frameRate).map {
+    //         CMTime(seconds: $0, preferredTimescale: 600)
+    //     }
+
+    //     var images: [CGImage] = []
+
+    //     // Extract frames
+    //     for time in times {
+    //         do {
+    //             let cgImage = try generator.copyCGImage(at: time, actualTime: nil)
+    //             images.append(cgImage)
+    //         } catch {
+    //             print("Failed to extract frame at time \(time): \(error)")
+    //         }
+    //     }
         
-        // Extract frames
-        for time in times {
+    //     return images
+    // }
+}
+
+@MainActor
+class VideoFrameManager: ObservableObject {
+    @Published var images: [NSImage] = []
+    @Published var isProcessing = false
+    
+    func extractFrames(date: Date) {
+        Task {
+            isProcessing = true
             do {
-                let cgImage = try generator.copyCGImage(at: time, actualTime: nil)
-                images.append(cgImage)
+                let tempDir = try await VideoFrameManager.extractFrames2(date: date)
+                let imageURLs = try FileManager.default.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil)
+                    .filter { $0.pathExtension.lowercased() == "png" }
+                    .sorted { $0.path < $1.path }
+                
+                let loadedImages = imageURLs.compactMap { NSImage(contentsOf: $0) }
+                
+                self.images = loadedImages
+                self.isProcessing = false
             } catch {
-                print("Failed to extract frame at time \(time): \(error)")
+                print("Error: \(error)")
+                self.isProcessing = false
             }
         }
+    }
+    
+    static func extractFrames2(date: Date) async throws -> URL {
+        let origTimestamp = Int(date.timeIntervalSince1970)
+        let minTimestamp = origTimestamp / 300 * 300
+        let maxTimestamp = minTimestamp + 86400
+
+        var timestamp = minTimestamp
+        while true {
+            let videoURL = URL(fileURLWithPath: "/Users/tm/ss/small/\(timestamp).mp4")
+            if FileManager.default.isReadableFile(atPath: videoURL.path) {
+                break
+            }
+            if timestamp == maxTimestamp {
+                break
+            }
+            timestamp += 300
+        }
+        guard timestamp != maxTimestamp else {
+            throw NSError(domain: "VideoDecoder", code: 3, userInfo: [NSLocalizedDescriptionKey: "Cannot find file"])
+        }
+        let videoURL = URL(fileURLWithPath: "/Users/tm/ss/small/\(timestamp).mp4")
+        guard FileManager.default.isReadableFile(atPath: videoURL.path) else {
+            throw NSError(domain: "VideoDecoder", code: 4, userInfo: [NSLocalizedDescriptionKey: "Still cannot find file"])
+        }
+
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         
-        return images
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
+        process.arguments = [
+            "-nostdin",
+            "-v", "error",
+            "-i", videoURL.path,
+            "\(tempDir.path)/frame-%04d.png"
+        ]
+        
+        try process.run()
+        process.waitUntilExit()
+        
+        return tempDir
     }
 }
 
 struct MainView: View {
+    @StateObject private var frameManager = VideoFrameManager()
     @State private var selectedDate = Date()
-
+    
     var body: some View {
         NavigationSplitView {
             VStack {
-                Text("Select a Date")
-                    .font(.headline)
-
-                DatePicker("",
-                           selection: $selectedDate,
-                           displayedComponents: .date)
-                    .datePickerStyle(.graphical)
-
-                Text("Selected Date:")
-                Text("\(selectedDate.formatted())")
-
+                DatePicker(
+                    "Select Date",
+                    selection: $selectedDate,
+                    displayedComponents: [.date]
+                )
+                .datePickerStyle(.graphical)
+                
+                Button("Extract Frames") {
+                    frameManager.extractFrames(date: selectedDate)
+                }
+                .disabled(frameManager.isProcessing)
+                
+                if frameManager.isProcessing {
+                    ProgressView("Processing...")
+                }
+                
                 Spacer()
             }
-            // .padding()
-            // .frame(minWidth: 200)
-
         } detail: {
-            ImageGridView() // or pass selectedDate if needed
+            ImageGridView(images: frameManager.images)
         }
     }
 }
 
 struct ImageGridView: View {
-    @State private var images: [NSImage] = []
-    @State private var isExtracting = false
-    @State private var currentIndex = 0
-    @FocusState private var isFocused: Bool
+    let images: [NSImage]
     
     var body: some View {
-        VStack {
-            if isExtracting {
-                ProgressView("Extracting frames...")
-            } else {
-                ScrollView {
-                    LazyVGrid(columns: [
-                        GridItem(.adaptive(minimum: 150))
-                    ], spacing: 10) {
-                        ForEach(images.indices, id: \.self) { index in
-                            Image(nsImage: images[index])
-                                .resizable()
-                                .aspectRatio(contentMode: .fit)
-                                .frame(height: 150)
-                        }
-                    }
-                    .padding()
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150))], spacing: 10) {
+                ForEach(Array(images.enumerated()), id: \.offset) { index, image in
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(height: 150)
                 }
             }
-            
-            Button("Select Video") {
-                selectVideo()
-            }
-        }
-    }
-    
-    private func selectVideo() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [UTType.movie]
-        panel.allowsMultipleSelection = false
-        
-        if panel.runModal() == .OK, let url = panel.url {
-            isExtracting = true
-            
-            Task {
-                do {
-                    let cgImages = try await VideoFrameExtractor.extractFrames(from: url)
-                    await MainActor.run {
-                        images = cgImages.map { NSImage(cgImage: $0, size: .zero) }
-                        isExtracting = false
-                    }
-                } catch {
-                    print("Error extracting frames: \(error)")
-                    await MainActor.run {
-                        isExtracting = false
-                    }
-                }
-            }
+            .padding()
         }
     }
 }
 
 @main
 struct Rekal: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     var body: some Scene {
         WindowGroup {
             MainView()
         }
+    }
+}
+
+class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApplication.shared.setActivationPolicy(.regular)
+        NSApplication.shared.activate(ignoringOtherApps: true)
     }
 }
