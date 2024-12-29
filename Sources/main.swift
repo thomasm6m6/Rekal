@@ -3,89 +3,49 @@ import Foundation
 import AVFoundation
 import UniformTypeIdentifiers
 
-// Video frame extraction service
-class VideoFrameExtractor {
-    static func extractFrames2(date: Date) throws {
-        // Convert date to filename format (assuming filename is Unix timestamp)
-        let timestamp = Int(date.timeIntervalSince1970)
-        let videoURL = URL(fileURLWithPath: "/Users/tm/ss/small/\(timestamp).mp4")
-        
-        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-
-        print("Using temp dir: \(tempDir.path)")
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
-        process.arguments = [
-            "-nostdin",
-            "-v", "error",
-            "-i", videoURL.path,
-            "\(tempDir.path)/frame-%04d.png"
-        ]
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            print("FFmpeg failed: \(error)")
-        }
-    }
-
-    // static func extractFrames(from videoURL: URL) async throws -> [CGImage] {
-    //     let asset = AVAsset(url: videoURL)
-    //     let generator = AVAssetImageGenerator(asset: asset)
-    //     generator.appliesPreferredTrackTransform = true
-        
-    //     // Get video duration and calculate frame times
-    //     let duration = try await asset.load(.duration)
-    //     let seconds = duration.seconds
-    //     let frameRate = 20.0
-    //     let times = stride(from: 0.0, to: seconds, by: frameRate).map {
-    //         CMTime(seconds: $0, preferredTimescale: 600)
-    //     }
-
-    //     var images: [CGImage] = []
-
-    //     // Extract frames
-    //     for time in times {
-    //         do {
-    //             let cgImage = try generator.copyCGImage(at: time, actualTime: nil)
-    //             images.append(cgImage)
-    //         } catch {
-    //             print("Failed to extract frame at time \(time): \(error)")
-    //         }
-    //     }
-        
-    //     return images
-    // }
-}
+// FIXME I don't think it's loading images exactly in chronological order. Issue might just be the one below.
+// FIXME it's definitely loading some chunks multiple times
+// TODO don't block the UI on loading images
+// TODO load full images
+// TODO LiveText
+// FIXME viewer is *very* memory heavy. on the order of ~10gb. Oddly, memory usage continues increasing after it finishes loading images(?)
+//       or maybe it just seems that way because of lazy loading?
 
 @MainActor
 class VideoFrameManager: ObservableObject {
     @Published var images: [NSImage] = []
     @Published var isProcessing = false
-    
+
     func extractFrames(date: Date) {
+        let date0 = date
+        var date1 = date
         Task {
             isProcessing = true
-            do {
-                let tempDir = try await VideoFrameManager.extractFrames2(date: date)
-                let imageURLs = try FileManager.default.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil)
-                    .filter { $0.pathExtension.lowercased() == "png" }
-                    .sorted { $0.path < $1.path }
-                
-                let loadedImages = imageURLs.compactMap { NSImage(contentsOf: $0) }
-                
-                self.images = loadedImages
-                self.isProcessing = false
-            } catch {
-                print("Error: \(error)")
-                self.isProcessing = false
+            while true {
+                do {
+                    let tempDir = try await VideoFrameManager.extractFrames2(date: date1)
+                    let imageURLs = try FileManager.default.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil)
+                        .filter { $0.pathExtension.lowercased() == "png" }
+                        .sorted { $0.path < $1.path }
+                    
+                    let loadedImages = imageURLs.compactMap { NSImage(contentsOf: $0) }
+                    
+                    self.images += loadedImages
+                    // self.isProcessing = false
+                } catch {
+                    print("Error: \(error)")
+                    // self.isProcessing = false
+                }
+                date1 = date1.addingTimeInterval(5 * 60)
+                if Calendar.current.ordinality(of: .day, in: .year, for: date1) ?? 0 > Calendar.current.ordinality(of: .day, in: .year, for: date0) ?? 0 {
+                    // FIXME time zones are mixed up I think
+                    self.isProcessing = false
+                    break
+                }
             }
         }
     }
-    
+
     static func extractFrames2(date: Date) async throws -> URL {
         let origTimestamp = Int(date.timeIntervalSince1970)
         let minTimestamp = origTimestamp / 300 * 300
@@ -132,6 +92,13 @@ class VideoFrameManager: ObservableObject {
 struct MainView: View {
     @StateObject private var frameManager = VideoFrameManager()
     @State private var selectedDate = Date()
+    @Namespace var namespace
+    @FocusState private var focusedArea: FocusArea?
+    
+    enum FocusArea {
+        case sidebar
+        case imageViewer
+    }
     
     var body: some View {
         NavigationSplitView {
@@ -142,11 +109,14 @@ struct MainView: View {
                     displayedComponents: [.date]
                 )
                 .datePickerStyle(.graphical)
+                .focusable(false)
+                .allowsHitTesting(true)
                 
                 Button("Extract Frames") {
                     frameManager.extractFrames(date: selectedDate)
                 }
                 .disabled(frameManager.isProcessing)
+                .focusable(false)
                 
                 if frameManager.isProcessing {
                     ProgressView("Processing...")
@@ -155,25 +125,85 @@ struct MainView: View {
                 Spacer()
             }
         } detail: {
-            ImageGridView(images: frameManager.images)
+            ImageView(images: frameManager.images)
+                .defaultFocus($focusedArea, .imageViewer, priority: .userInitiated)
+        }
+        .onAppear {
+            focusedArea = .imageViewer
         }
     }
 }
 
-struct ImageGridView: View {
+struct ImageView: View {
     let images: [NSImage]
+    @State private var currentIndex = 0
+    @State private var isPlaying = false
+    @FocusState private var isFocused: Bool
+    
+    let timer = Timer.publish(every: 0.025, on: .main, in: .common).autoconnect()
     
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150))], spacing: 10) {
-                ForEach(Array(images.enumerated()), id: \.offset) { index, image in
-                    Image(nsImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(height: 150)
+        VStack {
+            if (!images.isEmpty) {
+                Image(nsImage: images[currentIndex])
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                Text("No images available")
+            }
+            
+            HStack {
+                Button(action: previousImage) {
+                    Image(systemName: "arrow.left")
                 }
+                .disabled(currentIndex <= 0)
+                
+                Spacer()
+                
+                Button(action: { isPlaying.toggle() }) {
+                    Image(systemName: isPlaying ? "pause.circle" : "play.circle")
+                        .imageScale(.large)
+                }
+                .disabled(images.isEmpty || currentIndex >= images.count - 1)
+
+                Text("\(currentIndex + 1)/\(images.count)")
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundColor(.secondary)
+                
+                Spacer()
+                
+                Button(action: nextImage) {
+                    Image(systemName: "arrow.right")
+                }
+                .disabled(currentIndex >= images.count - 1)
             }
             .padding()
+        }
+        .focused($isFocused)
+        .onAppear { isFocused = true }
+        .onKeyPress(.leftArrow) { previousImage(); return .handled }
+        .onKeyPress(.rightArrow) { nextImage(); return .handled }
+        .onReceive(timer) { _ in
+            if isPlaying {
+                nextImage()
+            }
+        }
+    }
+    
+    private func previousImage() {
+        if currentIndex > 0 {
+            currentIndex -= 1
+        }
+    }
+    
+    private func nextImage() {
+        if currentIndex < images.count - 1 {
+            currentIndex += 1
+        } else {
+            if isPlaying {
+                isPlaying = false
+            }
         }
     }
 }
