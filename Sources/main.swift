@@ -3,89 +3,94 @@ import Foundation
 import AVFoundation
 import UniformTypeIdentifiers
 
-// FIXME I don't think it's loading images exactly in chronological order. Issue might just be the one below.
-// FIXME it's definitely loading some chunks multiple times
-// TODO don't block the UI on loading images
+// TODO don't block the UI while loading images
 // TODO load full images
 // TODO LiveText
-// FIXME viewer is *very* memory heavy. on the order of ~10gb. Oddly, memory usage continues increasing after it finishes loading images(?)
-//       or maybe it just seems that way because of lazy loading?
+// FIXME Viewer is pretty memory-heavy, e.g. 7.24gb for 4774 files (dec 27)
+//       Memory usage continues increasing after it finishes loading images
+//       Or maybe it just seems that way because of lazy loading?
+// FIXME arrow keys still don't work
 
 @MainActor
 class VideoFrameManager: ObservableObject {
     @Published var images: [NSImage] = []
+    @Published var videoIndex = 0
+    @Published var videoCount = 0
     @Published var isProcessing = false
 
     func extractFrames(date: Date) {
-        let date0 = date
-        var date1 = date
-        Task {
-            isProcessing = true
-            while true {
-                do {
-                    let tempDir = try await VideoFrameManager.extractFrames2(date: date1)
-                    let imageURLs = try FileManager.default.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil)
-                        .filter { $0.pathExtension.lowercased() == "png" }
-                        .sorted { $0.path < $1.path }
-                    
-                    let loadedImages = imageURLs.compactMap { NSImage(contentsOf: $0) }
-                    
-                    self.images += loadedImages
-                    // self.isProcessing = false
-                } catch {
-                    print("Error: \(error)")
-                    // self.isProcessing = false
-                }
-                date1 = date1.addingTimeInterval(5 * 60)
-                if Calendar.current.ordinality(of: .day, in: .year, for: date1) ?? 0 > Calendar.current.ordinality(of: .day, in: .year, for: date0) ?? 0 {
-                    // FIXME time zones are mixed up I think
-                    self.isProcessing = false
-                    break
-                }
-            }
-        }
-    }
+        images = []
 
-    static func extractFrames2(date: Date) async throws -> URL {
-        let origTimestamp = Int(date.timeIntervalSince1970)
-        let minTimestamp = origTimestamp / 300 * 300
+        // TODO use timestamps instead of Dates?
+        // let dateMin = Calendar.current.startOfDay(for: date)
+        // let dateMax = Calendar.current.date(byAdding: .day, value: 1, to: dateMin)!
+        // var currentDate = dateMin
+        let minTimestamp = Int(Calendar.current.startOfDay(for: date).timeIntervalSince1970)
         let maxTimestamp = minTimestamp + 86400
-
         var timestamp = minTimestamp
-        while true {
-            let videoURL = URL(fileURLWithPath: "/Users/tm/ss/small/\(timestamp).mp4")
-            if FileManager.default.isReadableFile(atPath: videoURL.path) {
-                break
-            }
-            if timestamp == maxTimestamp {
-                break
-            }
-            timestamp += 300
-        }
-        guard timestamp != maxTimestamp else {
-            throw NSError(domain: "VideoDecoder", code: 3, userInfo: [NSLocalizedDescriptionKey: "Cannot find file"])
-        }
-        let videoURL = URL(fileURLWithPath: "/Users/tm/ss/small/\(timestamp).mp4")
-        guard FileManager.default.isReadableFile(atPath: videoURL.path) else {
-            throw NSError(domain: "VideoDecoder", code: 4, userInfo: [NSLocalizedDescriptionKey: "Still cannot find file"])
-        }
 
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
-        process.arguments = [
-            "-nostdin",
-            "-v", "error",
-            "-i", videoURL.path,
-            "\(tempDir.path)/frame-%04d.png"
-        ]
-        
-        try process.run()
-        process.waitUntilExit()
-        
-        return tempDir
+        do {
+            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        } catch {
+            print("Error creating directory: \(error)")
+            return
+        }
+
+        Task {
+            isProcessing = true
+            // TODO struct
+            var videoURLs: [URL] = []
+            var timestamps: [Int] = []
+            while timestamp < maxTimestamp {
+                // print(timestamp)
+                let videoURL = URL(fileURLWithPath: "/Users/tm/ss/small/\(timestamp).mp4")
+                if !FileManager.default.isReadableFile(atPath: videoURL.path) {
+                    timestamp += 300
+                    continue
+                }
+                videoURLs.append(videoURL)
+                timestamps.append(timestamp)
+                timestamp += 300
+                // print(videoURL)
+            }
+            // print(videoURLs)
+            videoCount = videoURLs.count
+            for videoURL in videoURLs {
+                // print(videoURL)
+                let timestamp = timestamps[videoIndex]
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
+                process.arguments = [
+                    "-nostdin",
+                    "-v", "error",
+                    "-i", videoURL.path,
+                    "\(tempDir.path)/\(timestamp)-%04d.png"
+                ]
+
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+                } catch {
+                    print("Error: \(error)")
+                }
+                videoIndex += 1
+            }
+            do {
+                let imageURLs = try FileManager.default.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil)
+                    .filter { $0.pathExtension.lowercased() == "png" }
+                    .sorted { $0.path < $1.path }
+                images = imageURLs.compactMap { NSImage(contentsOf: $0) }
+            } catch {
+                print("Error: \(error)")
+            }
+            isProcessing = false
+            do {
+                try FileManager.default.removeItem(at: tempDir)
+            } catch {
+                print("Error: \(error)")
+            }
+        }
     }
 }
 
@@ -125,7 +130,7 @@ struct MainView: View {
                 Spacer()
             }
         } detail: {
-            ImageView(images: frameManager.images)
+            ImageView(images: frameManager.images, videoIndex: frameManager.videoIndex, videoCount: frameManager.videoCount)
                 .defaultFocus($focusedArea, .imageViewer, priority: .userInitiated)
         }
         .onAppear {
@@ -136,6 +141,8 @@ struct MainView: View {
 
 struct ImageView: View {
     let images: [NSImage]
+    let videoIndex: Int
+    let videoCount: Int
     @State private var currentIndex = 0
     @State private var isPlaying = false
     @FocusState private var isFocused: Bool
@@ -150,8 +157,11 @@ struct ImageView: View {
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
+                Spacer()
                 Text("No images available")
             }
+
+            Spacer()
             
             HStack {
                 Button(action: previousImage) {
@@ -167,7 +177,11 @@ struct ImageView: View {
                 }
                 .disabled(images.isEmpty || currentIndex >= images.count - 1)
 
-                Text("\(currentIndex + 1)/\(images.count)")
+                Text("\(videoIndex)/\(videoCount)")
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundColor(.secondary)
+
+                Text("\(currentIndex)/\(images.count)")
                     .font(.system(.body, design: .monospaced))
                     .foregroundColor(.secondary)
                 

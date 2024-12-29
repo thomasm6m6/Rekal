@@ -5,6 +5,8 @@ import Accelerate // why is this here?
 
 // TODO sqlite
 // maybe don't capture the screen at all while FaceTime is running/is the active window
+// TODO batch writes
+// replayd is taking 4.5gb of memory rn. that might be a problem.
 
 struct Record {
     var image: CGImage
