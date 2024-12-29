@@ -37,27 +37,24 @@ class VideoFrameManager: ObservableObject {
             return
         }
 
+        // TODO struct
+        var videoURLs: [URL] = []
+        var timestamps: [Int] = []
+        while timestamp < maxTimestamp {
+            let videoURL = URL(fileURLWithPath: "/Users/tm/ss/small/\(timestamp).mp4")
+            if !FileManager.default.isReadableFile(atPath: videoURL.path) {
+                timestamp += 300
+                continue
+            }
+            videoURLs.append(videoURL)
+            timestamps.append(timestamp)
+            timestamp += 300
+        }
+        videoCount = videoURLs.count
+
         Task {
             isProcessing = true
-            // TODO struct
-            var videoURLs: [URL] = []
-            var timestamps: [Int] = []
-            while timestamp < maxTimestamp {
-                // print(timestamp)
-                let videoURL = URL(fileURLWithPath: "/Users/tm/ss/small/\(timestamp).mp4")
-                if !FileManager.default.isReadableFile(atPath: videoURL.path) {
-                    timestamp += 300
-                    continue
-                }
-                videoURLs.append(videoURL)
-                timestamps.append(timestamp)
-                timestamp += 300
-                // print(videoURL)
-            }
-            // print(videoURLs)
-            videoCount = videoURLs.count
             for videoURL in videoURLs {
-                // print(videoURL)
                 let timestamp = timestamps[videoIndex]
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
@@ -99,7 +96,7 @@ struct MainView: View {
     @State private var selectedDate = Date()
     @Namespace var namespace
     @FocusState private var focusedArea: FocusArea?
-    
+
     enum FocusArea {
         case sidebar
         case imageViewer
@@ -167,21 +164,21 @@ struct ImageView: View {
                 Button(action: previousImage) {
                     Image(systemName: "arrow.left")
                 }
-                .disabled(currentIndex <= 0)
+                .disabled(isPlaying || currentIndex <= 0)
                 
                 Spacer()
                 
+                Text("\(videoIndex)/\(videoCount) videos")
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundColor(.secondary)
+
                 Button(action: { isPlaying.toggle() }) {
                     Image(systemName: isPlaying ? "pause.circle" : "play.circle")
                         .imageScale(.large)
                 }
                 .disabled(images.isEmpty || currentIndex >= images.count - 1)
 
-                Text("\(videoIndex)/\(videoCount)")
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundColor(.secondary)
-
-                Text("\(currentIndex)/\(images.count)")
+                Text("\(currentIndex)/\(images.count) frames")
                     .font(.system(.body, design: .monospaced))
                     .foregroundColor(.secondary)
                 
@@ -190,7 +187,7 @@ struct ImageView: View {
                 Button(action: nextImage) {
                     Image(systemName: "arrow.right")
                 }
-                .disabled(currentIndex >= images.count - 1)
+                .disabled(isPlaying || currentIndex >= images.count - 1)
             }
             .padding()
         }
