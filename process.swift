@@ -2,6 +2,7 @@ import Foundation
 import VisionKit
 import AppKit // included for NSImage. alternative? or is this the correct approach?
 import IOKit.ps
+import Dispatch
 
 // FIXME figure out why there are discrepancies between the file index as calculated by this implementation vs process.py
 
@@ -11,17 +12,20 @@ let fullDir = rootDir.appendingPathComponent("full")
 let smallDir = rootDir.appendingPathComponent("small")
 
 var isOnPower = false
-var isProcessing = false
+
+func log(_ string: String) {
+    print(Date(), string)
+}
 
 func performOCR(on imageURL: URL) async -> String {
     // let imageURL = URL(fileURLWithPath: imagePath)
     guard FileManager.default.fileExists(atPath: imageURL.path) else {
-        print("Error: File not found at \(imageURL.path)")
+        log("Error: File not found at \(imageURL.path)")
         return "" // TODO throw error
     }
     
     guard let image = NSImage(contentsOf: imageURL) else {
-        print("Error: Unable to load the image.")
+        log("Error: Unable to load the image.")
         return "" // TODO throw error
     }
     
@@ -41,7 +45,6 @@ func ocr(filePath: URL) async throws {
 }
 
 func encode() throws -> [Int: [URL]] {
-    print("encode()")
     var files: [Int: [URL]] = [:]
     let now = Int(Date().timeIntervalSince1970)
 
@@ -78,12 +81,11 @@ func encode() throws -> [Int: [URL]] {
         }
     }
 
-    print("end encode()")
     return files
 }
 
 func removeDir(dir: URL) throws {
-    print("removeDir(\(dir.path))")
+    log("removeDir(\(dir.path))")
     // TODO remove dir instead once I'm confident
     let destinationDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("ss_rm")
     let destinationURL = destinationDir.appendingPathComponent(dir.lastPathComponent)
@@ -93,11 +95,10 @@ func removeDir(dir: URL) throws {
     }
 
     try FileManager.default.moveItem(at: dir, to: destinationURL)
-    print("end removeDir()")
 }
 
 func makeMP4s() throws {
-    print("makeMP4s()")
+    log("makeMP4s()")
     // TODO iterate through files in numeric order of keys
     let files = try encode()
 
@@ -123,7 +124,7 @@ func makeMP4s() throws {
         let mp4Small = smallDir.appendingPathComponent("\(key).mp4")
 
         if FileManager.default.fileExists(atPath: mp4Full.path) {
-            print("\(mp4Full.path) exists; skipping")
+            log("\(mp4Full.path) exists; skipping")
             continue
         }
 
@@ -167,12 +168,12 @@ func makeMP4s() throws {
         ]
 
         do {
-            print("running \(processF)")
+            log("running \(processF)")
             try processF.run()
-            print("running \(processS)")
+            log("running \(processS)")
             try processS.run()
         } catch {
-            print("Error: \(error)")
+            log("Error: \(error)")
             continue
         }
 
@@ -185,19 +186,18 @@ func makeMP4s() throws {
             do {
                 try removeDir(dir: dir)
             } catch {
-                print("Error: failed to remove dir \(dir.path): \(error)")
+                log("Error: failed to remove dir \(dir.path): \(error)")
             }
         }
 
-        print("made \(key).mp4")
+        log("make \(key).mp4")
     }
     // TODO use defer
     try fileHandle.close()
     try FileManager.default.removeItem(at: tempFile)
-    print("end makeMP4s()")
+    log("end makeMP4s()")
 }
 
-// NOTE takes a moment to update
 func isDeviceOnPower() -> Bool {
     let snapshot = IOPSCopyPowerSourcesInfo().takeRetainedValue()
     let type = IOPSGetProvidingPowerSourceType(snapshot)
@@ -208,19 +208,36 @@ func isDeviceOnPower() -> Bool {
     return type2 == kIOPSACPowerValue
 }
 
-let loop = IOPSNotificationCreateRunLoopSource({ _ in
-    isOnPower = isDeviceOnPower()
+let semaphore = DispatchSemaphore(value: 1)
 
-    if isOnPower && !isProcessing {
-        isProcessing = true
+func doProcess() {
+    log("doProcess()")
+    guard isOnPower else {
+        return
+    }
+
+    if semaphore.wait(timeout: .now()) == .success {
+        defer { semaphore.signal() }
+
         do {
             try makeMP4s()
         } catch {
-            print("Error: \(error)")
+            log("Error: \(error)")
         }
-        isProcessing = false
+    } else {
+        log("makeMP4s already running")
     }
+}
+
+isOnPower = isDeviceOnPower()
+let loop = IOPSNotificationCreateRunLoopSource({ _ in
+    isOnPower = isDeviceOnPower()
 }, nil).takeRetainedValue() as CFRunLoopSource
 CFRunLoopAddSource(CFRunLoopGetCurrent(), loop, .defaultMode)
+
+doProcess()
+Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { _ in
+    doProcess()
+}
 
 RunLoop.current.run()
