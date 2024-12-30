@@ -11,23 +11,22 @@ import UniformTypeIdentifiers
 //       Or maybe it just seems that way because of lazy loading?
 // FIXME arrow keys still don't work
 
+struct Video {
+    var url: URL
+    var timestamp: Int
+}
+
 @MainActor
 class VideoFrameManager: ObservableObject {
     @Published var images: [NSImage] = []
+    @Published var videos: [Video] = []
     @Published var videoIndex = 0
-    @Published var videoCount = 0
     @Published var isProcessing = false
 
     func extractFrames(date: Date) {
         images = []
-
-        // TODO use timestamps instead of Dates?
-        // let dateMin = Calendar.current.startOfDay(for: date)
-        // let dateMax = Calendar.current.date(byAdding: .day, value: 1, to: dateMin)!
-        // var currentDate = dateMin
-        let minTimestamp = Int(Calendar.current.startOfDay(for: date).timeIntervalSince1970)
-        let maxTimestamp = minTimestamp + 86400
-        var timestamp = minTimestamp
+        videos = []
+        videoIndex = 0
 
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         do {
@@ -37,32 +36,28 @@ class VideoFrameManager: ObservableObject {
             return
         }
 
-        // TODO struct
-        var videoURLs: [URL] = []
-        var timestamps: [Int] = []
-        while timestamp < maxTimestamp {
+        let minTimestamp = Int(Calendar.current.startOfDay(for: date).timeIntervalSince1970)
+        let maxTimestamp = minTimestamp + 86400
+
+        for timestamp in stride(from: minTimestamp, to: maxTimestamp, by: 300) {
             let videoURL = URL(fileURLWithPath: "/Users/tm/ss/small/\(timestamp).mp4")
             if !FileManager.default.isReadableFile(atPath: videoURL.path) {
-                timestamp += 300
                 continue
             }
-            videoURLs.append(videoURL)
-            timestamps.append(timestamp)
-            timestamp += 300
+            let video = Video(url: videoURL, timestamp: timestamp)
+            videos.append(video)
         }
-        videoCount = videoURLs.count
 
         Task {
             isProcessing = true
-            for videoURL in videoURLs {
-                let timestamp = timestamps[videoIndex]
+            for video in videos {
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
                 process.arguments = [
                     "-nostdin",
                     "-v", "error",
-                    "-i", videoURL.path,
-                    "\(tempDir.path)/\(timestamp)-%04d.png"
+                    "-i", video.url.path,
+                    "\(tempDir.path)/\(video.timestamp)-%04d.png"
                 ]
 
                 do {
@@ -127,7 +122,7 @@ struct MainView: View {
                 Spacer()
             }
         } detail: {
-            ImageView(images: frameManager.images, videoIndex: frameManager.videoIndex, videoCount: frameManager.videoCount)
+            ImageView(images: frameManager.images, videos: frameManager.videos, videoIndex: frameManager.videoIndex)
                 .defaultFocus($focusedArea, .imageViewer, priority: .userInitiated)
         }
         .onAppear {
@@ -138,8 +133,8 @@ struct MainView: View {
 
 struct ImageView: View {
     let images: [NSImage]
+    let videos: [Video]
     let videoIndex: Int
-    let videoCount: Int
     @State private var currentIndex = 0
     @State private var isPlaying = false
     @FocusState private var isFocused: Bool
@@ -168,7 +163,7 @@ struct ImageView: View {
                 
                 Spacer()
                 
-                Text("\(videoIndex)/\(videoCount) videos")
+                Text("\(videoIndex)/\(videos.count) videos")
                     .font(.system(.body, design: .monospaced))
                     .foregroundColor(.secondary)
 
