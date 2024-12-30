@@ -90,13 +90,7 @@ struct MainView: View {
     @StateObject private var frameManager = VideoFrameManager()
     @State private var selectedDate = Date()
     @Namespace var namespace
-    @FocusState private var focusedArea: FocusArea?
 
-    enum FocusArea {
-        case sidebar
-        case imageViewer
-    }
-    
     var body: some View {
         NavigationSplitView {
             VStack {
@@ -106,14 +100,11 @@ struct MainView: View {
                     displayedComponents: [.date]
                 )
                 .datePickerStyle(.graphical)
-                .focusable(false)
-                .allowsHitTesting(true)
                 
                 Button("Extract Frames") {
                     frameManager.extractFrames(date: selectedDate)
                 }
                 .disabled(frameManager.isProcessing)
-                .focusable(false)
                 
                 if frameManager.isProcessing {
                     ProgressView("Processing...")
@@ -123,10 +114,6 @@ struct MainView: View {
             }
         } detail: {
             ImageView(images: frameManager.images, videos: frameManager.videos, videoIndex: frameManager.videoIndex)
-                .defaultFocus($focusedArea, .imageViewer, priority: .userInitiated)
-        }
-        .onAppear {
-            focusedArea = .imageViewer
         }
     }
 }
@@ -137,7 +124,6 @@ struct ImageView: View {
     let videoIndex: Int
     @State private var currentIndex = 0
     @State private var isPlaying = false
-    @FocusState private var isFocused: Bool
     
     let timer = Timer.publish(every: 0.025, on: .main, in: .common).autoconnect()
     
@@ -186,10 +172,6 @@ struct ImageView: View {
             }
             .padding()
         }
-        .focused($isFocused)
-        .onAppear { isFocused = true }
-        .onKeyPress(.leftArrow) { previousImage(); return .handled }
-        .onKeyPress(.rightArrow) { nextImage(); return .handled }
         .onReceive(timer) { _ in
             if isPlaying {
                 nextImage()
