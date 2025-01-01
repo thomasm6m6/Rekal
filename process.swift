@@ -4,81 +4,58 @@ import AppKit // included for NSImage. alternative? or is this the correct appro
 import IOKit.ps
 import Dispatch
 
-// FIXME figure out why there are discrepancies between the file index as calculated by this implementation vs process.py
+// XXX there might be a bug relating to the mp4s not being made in order. see: ~/ss/small/1735708500.mp4
 
 let rootDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("ss")
-let imgDir = rootDir.appendingPathComponent("img")
-let fullDir = rootDir.appendingPathComponent("full")
-let smallDir = rootDir.appendingPathComponent("small")
-
-var isOnPower = false
 
 func log(_ string: String) {
     print(Date(), string)
 }
 
-func performOCR(on imageURL: URL) async -> String {
-    // let imageURL = URL(fileURLWithPath: imagePath)
-    guard FileManager.default.fileExists(atPath: imageURL.path) else {
-        log("Error: File not found at \(imageURL.path)")
-        return "" // TODO throw error
-    }
-    
-    guard let image = NSImage(contentsOf: imageURL) else {
-        log("Error: Unable to load the image.")
-        return "" // TODO throw error
-    }
-    
+enum OCRError: Error {
+    case analysisFailed(String)
+}
+
+func performOCR(image: NSImage) async throws -> String? {
+    log("performOCR(image)")
     let analyzer = ImageAnalyzer()
     let configuration = ImageAnalyzer.Configuration([.text])
-    
-    let analysis = try? await analyzer.analyze(image, orientation: .right, configuration: configuration)
-    return analysis!.transcript
+
+    do {
+        let analysis = try await analyzer.analyze(image, orientation: .right, configuration: configuration)
+        return analysis.transcript
+    } catch {
+        throw OCRError.analysisFailed("Unable to analyze image")
+    }
 }
 
-func ocr(filePath: URL) async throws {
-    let imagePath = filePath.appendingPathComponent("image.png")
-    let ocrPath = filePath.appendingPathComponent("ocr.txt")
-
-    let result = await performOCR(on: imagePath)
-    try result.write(to: ocrPath, atomically: true, encoding: .utf8)
-}
-
-func encode() throws -> [Int: [URL]] {
+func makeList() throws -> [Int: [URL]] {
     var files: [Int: [URL]] = [:]
     let now = Int(Date().timeIntervalSince1970)
+    let imageDir = rootDir.appendingPathComponent("img")
 
-    let fileManager = FileManager.default
-    let contents = try fileManager.contentsOfDirectory(
-        at: imgDir,
+    let contents = try FileManager.default.contentsOfDirectory(
+        at: imageDir,
         includingPropertiesForKeys: [.isDirectoryKey],
         options: .skipsHiddenFiles
     )
 
     for dirURL in contents {
-        guard let isDir = try dirURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory, isDir else {
-            continue
-        }
-
-        guard let timestamp = Int(dirURL.lastPathComponent) else {
-            continue
-        }
-        if now - timestamp < 300 {
+        let imageURL = dirURL.appendingPathComponent("image.png")
+        guard let timestamp = Int(dirURL.lastPathComponent),
+                FileManager.default.fileExists(atPath: imageURL.path),
+                now - timestamp > 300 else {
             continue
         }
 
         let block = timestamp / 300 * 300
-        if files[block] != nil {
-            files[block]?.append(dirURL)
-        } else {
-            files[block] = [dirURL]
-        }
+        files[block, default: []].append(dirURL)
     }
 
-    for (block, dirs) in files {
-        files[block] = dirs.sorted {
-            Int($0.lastPathComponent) ?? 0 < Int($1.lastPathComponent) ?? 0
-        }
+    files.keys.forEach { block in
+        files[block]?.sort(by: {
+            (Int($0.lastPathComponent) ?? 0) < (Int($1.lastPathComponent) ?? 0)
+        })
     }
 
     return files
@@ -86,42 +63,35 @@ func encode() throws -> [Int: [URL]] {
 
 func removeDir(dir: URL) throws {
     log("removeDir(\(dir.path))")
-    // TODO remove dir instead once I'm confident
-    let destinationDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("ss_rm")
-    let destinationURL = destinationDir.appendingPathComponent(dir.lastPathComponent)
+    // TODO remove image instead once I'm confident
+    let imageURL = dir.appendingPathComponent("image.png")
+    let trashDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("ss_rm")
+    let destDir = trashDir.appendingPathComponent(dir.lastPathComponent)
+    let destURL = destDir.appendingPathComponent("image.png")
 
-    if !FileManager.default.fileExists(atPath: destinationDir.path) {
-        try FileManager.default.createDirectory(at: destinationDir, withIntermediateDirectories: true, attributes: nil)
-    }
-
-    try FileManager.default.moveItem(at: dir, to: destinationURL)
+    try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true, attributes: nil)
+    // print("trying to move \(imageURL.path) to \(destURL.path)")
+    try FileManager.default.moveItem(at: imageURL, to: destURL)
 }
 
-func makeMP4s() throws {
+func makeMP4s() async throws {
     log("makeMP4s()")
     // TODO iterate through files in numeric order of keys
-    let files = try encode()
+    let files = try makeList()
 
     let tempFile = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     guard FileManager.default.createFile(atPath: tempFile.path, contents: nil, attributes: nil) else {
         return // TODO throw
     }
     let fileHandle = try FileHandle(forWritingTo: tempFile)
-    // let fileHandle: FileHandle
-    // do {
-    //     fileHandle = try FileHandle(forWritingTo: tempFile)
-    // } catch {
-    //     throw NSError(domain: "FileHandling", code: 1,
-    //         userInfo: [NSLocalizedDescriptionKey: "Cannot create file handle: \(error.localizedDescription)"])
-    // }
 
-    for (key, dirs) in files {
+    for (block, dirs) in files {
         if !isOnPower {
             break
         }
-    
-        let mp4Full = fullDir.appendingPathComponent("\(key).mp4")
-        let mp4Small = smallDir.appendingPathComponent("\(key).mp4")
+
+        let mp4Full = rootDir.appendingPathComponent("full/\(block).mp4")
+        let mp4Small = rootDir.appendingPathComponent("small/\(block).mp4")
 
         if FileManager.default.fileExists(atPath: mp4Full.path) {
             log("\(mp4Full.path) exists; skipping")
@@ -130,10 +100,34 @@ func makeMP4s() throws {
 
         var concatContent = ""
         for dir in dirs {
-            concatContent += "file '\(dir.appendingPathComponent("image.png").path)'\nduration 1.0\n"
+            let ocrURL = dir.appendingPathComponent("ocr.txt")
+            let imageURL = dir.appendingPathComponent("image.png")
+            print("ocrURL = \(ocrURL.path)")
+            print("imageURL = \(imageURL.path)")
+
+            guard let image = NSImage(contentsOf: imageURL) else {
+                log("Error: Cannot load image \(imageURL.path)")
+                continue // TODO throw error?
+            }
+
+            do {
+                guard let result = try await performOCR(image: image) else {
+                    log("Error running performOCR")
+                    continue // TODO throw error?
+                }
+                try result.write(to: ocrURL, atomically: false, encoding: .utf8)
+            } catch {
+                log("Error with OCR: \(error)")
+            }
+
+            concatContent += "file '\(imageURL.path)'\nduration 1.0\n"
         }
-        // TODO maybe use fileHandle
-        try concatContent.write(to: tempFile, atomically: true, encoding: .utf8)
+
+        if let data = concatContent.data(using: .utf8) {
+            try fileHandle.write(contentsOf: data)
+        } else {
+            log("Cannot make data from string")
+        }
 
         let processF = Process()
         processF.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
@@ -183,14 +177,10 @@ func makeMP4s() throws {
         try fileHandle.truncate(atOffset: 0)
 
         for dir in dirs {
-            do {
-                try removeDir(dir: dir)
-            } catch {
-                log("Error: failed to remove dir \(dir.path): \(error)")
-            }
+            try removeDir(dir: dir)
         }
 
-        log("make \(key).mp4")
+        log("make \(block).mp4")
     }
     // TODO use defer
     try fileHandle.close()
@@ -210,7 +200,7 @@ func isDeviceOnPower() -> Bool {
 
 let semaphore = DispatchSemaphore(value: 1)
 
-func doProcess() {
+func doProcess() async {
     log("doProcess()")
     guard isOnPower else {
         return
@@ -220,7 +210,7 @@ func doProcess() {
         defer { semaphore.signal() }
 
         do {
-            try makeMP4s()
+            try await makeMP4s()
         } catch {
             log("Error: \(error)")
         }
@@ -229,15 +219,15 @@ func doProcess() {
     }
 }
 
-isOnPower = isDeviceOnPower()
+var isOnPower = isDeviceOnPower()
 let loop = IOPSNotificationCreateRunLoopSource({ _ in
     isOnPower = isDeviceOnPower()
 }, nil).takeRetainedValue() as CFRunLoopSource
 CFRunLoopAddSource(CFRunLoopGetCurrent(), loop, .defaultMode)
 
-doProcess()
+Task { await doProcess() }
 Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { _ in
-    doProcess()
+    Task { await doProcess() }
 }
 
 RunLoop.current.run()
