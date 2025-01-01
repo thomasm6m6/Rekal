@@ -9,7 +9,10 @@ import UniformTypeIdentifiers
 // FIXME Viewer is pretty memory-heavy, e.g. 7.24gb for 4774 files (dec 27)
 //       Memory usage continues increasing after it finishes loading images
 //       Or maybe it just seems that way because of lazy loading?
-// FIXME arrow keys still don't work
+// TODO arrow keys and media keys
+// TODO export image
+// TODO zoom
+// FIXME currentIndex is not updated when loadImages is called
 
 struct Video {
     var url: URL
@@ -51,6 +54,8 @@ class VideoFrameManager: ObservableObject {
         Task {
             isProcessing = true
             for video in videos {
+                print(video)
+
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
                 process.arguments = [
@@ -84,6 +89,42 @@ class VideoFrameManager: ObservableObject {
             }
         }
     }
+
+    func loadImages() {
+        images = []
+        videos = []
+        videoIndex = 0
+
+        let now = Int(Date().timeIntervalSince1970)
+        let rootDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("ss")
+        let imageDir = rootDir.appendingPathComponent("img")
+        var imageURLs: [URL] = []
+
+        // TODO might be able to sort in contentsOfDirectory instead
+        do {
+            let contents = try FileManager.default.contentsOfDirectory(
+                at: imageDir,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: .skipsHiddenFiles
+            )
+
+            for dirURL in contents {
+                let imageURL = dirURL.appendingPathComponent("image.png")
+                guard let timestamp = Int(dirURL.lastPathComponent),
+                        FileManager.default.fileExists(atPath: imageURL.path),
+                        now - timestamp <= 300 else {
+                    continue
+                }
+
+                imageURLs.append(imageURL)
+            }
+
+            let sortedImageURLs = imageURLs.sorted { $0.path < $1.path }
+            images = sortedImageURLs.compactMap { NSImage(contentsOf: $0) }
+        } catch {
+            print("Error: \(error)")
+        }
+    }
 }
 
 struct MainView: View {
@@ -100,9 +141,14 @@ struct MainView: View {
                     displayedComponents: [.date]
                 )
                 .datePickerStyle(.graphical)
-                
+
                 Button("Extract Frames") {
                     frameManager.extractFrames(date: selectedDate)
+                }
+                .disabled(frameManager.isProcessing)
+
+                Button("Load current") {
+                    frameManager.loadImages()
                 }
                 .disabled(frameManager.isProcessing)
                 
@@ -114,6 +160,9 @@ struct MainView: View {
             }
         } detail: {
             ImageView(images: frameManager.images, videos: frameManager.videos, videoIndex: frameManager.videoIndex)
+        }
+        .onAppear {
+            frameManager.loadImages()
         }
     }
 }
@@ -129,7 +178,7 @@ struct ImageView: View {
     
     var body: some View {
         VStack {
-            if (!images.isEmpty) {
+            if !images.isEmpty {
                 Image(nsImage: images[currentIndex])
                     .resizable()
                     .aspectRatio(contentMode: .fit)
