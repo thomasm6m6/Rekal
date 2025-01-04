@@ -4,22 +4,27 @@ import PackageDescription
 
 let package = Package(
     name: "Rekal",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v15)],
     dependencies: [
         .package(url: "https://github.com/stephencelis/SQLite.swift.git", from: "0.15.3")
     ],
     targets: [
-        .executableTarget(
-            name: "rekald",
+        .target(
+            name: "Common",
             dependencies: [
                 .product(name: "SQLite", package: "SQLite.swift")
             ]
+            // path: "Sources/Common"
+        ),
+        .executableTarget(
+            name: "rekald",
+            dependencies: ["Common"]
+            // path: "Sources/rekald"
         ),
         .executableTarget(
             name: "rekal",
-            dependencies: [
-                .product(name: "SQLite", package: "SQLite.swift")
-            ]
+            dependencies: ["Common"]
+            // path: "Sources/rekal"
         )
     ]
 )

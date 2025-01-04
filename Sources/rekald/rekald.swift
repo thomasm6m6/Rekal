@@ -1,18 +1,16 @@
 import Foundation
-import AppKit
 import IOKit.ps
-import Dispatch
 import CoreGraphics
-@preconcurrency import VisionKit // FIXME probably shouldn't use this
+@preconcurrency import VisionKit // TODO probably shouldn't use preconcurrency
 @preconcurrency import ScreenCaptureKit // "
 import AVFoundation
-import SQLite
+import Common
 
 // TODO replayd is using 4.5gb of memory rn. that might be a problem.
 // TODO use `throw` in more places
-// FIXME doesn't seem to be checking similarity
 // FIXME figure out why I ended up with a 1 frame mp4 one time
 //       (relatedly, `subrecords` one time only had a length of 1)
+// TODO exit in case of fatal errors like failing to create the db file
 
 // TODO graceful exit where a gentle quit request (e.g. ctrl+c, but
 // also whatever macOS would give it e.g. when it wants to shut down)
@@ -21,28 +19,6 @@ import SQLite
 // Also, need to think about what to do if there's already a file
 // corresponding to the timeframe we're trying to write for (e.g. if
 // the process were quit and then immediately restarted.)
-
-func log(_ string: String) {
-    print("\(Date())\t\(string)")
-}
-
-struct RecordInfo {
-    var windowId: Int
-    var rect: CGRect
-    var windowName = ""
-    var appId = ""
-    var appName = ""
-    var url = ""
-}
-
-struct Record {
-    var image: CGImage
-    var time: Int
-    var info: RecordInfo
-    var ocrText: String?
-    var mp4LargeURL: URL?
-    var mp4SmallURL: URL?
-}
 
 actor Data {
     // Might make more sense to just define this in Recorder and pass Recorder instance to Processor
@@ -65,114 +41,20 @@ actor Data {
     }
 }
 
-
-enum FilesError: Error {
-    case nonexistentDirectory(String)
-}
-
-actor Files {
-    let appSupportDir: URL
-    let databaseFile: URL
-
-    init() throws {
-        let bundleIdentifier = "com.example.Rekal" // TODO bundle.main.bundleidentifier(?)
-        guard let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            throw FilesError.nonexistentDirectory("Failed to get location of Application Support directory")
-        }
-        appSupportDir = dir.appending(path: bundleIdentifier)
-
-        databaseFile = appSupportDir.appending(path: "db.sqlite3")
-    }
-}
-
-enum DatabaseError: Error {
-    case fileError(String)
-    case error(String)
-}
-
-class Database {
-    private let db: Connection
-    private let records = Table("records")
-
-    private let timestamp = SQLite.Expression<Int>("timestamp")
-    private let windowId = SQLite.Expression<Int>("window_id")
-    private let windowName = SQLite.Expression<String?>("window_name")
-    private let appId = SQLite.Expression<String?>("app_id")
-    private let appName = SQLite.Expression<String?>("app_name")
-    private let url = SQLite.Expression<String?>("url")
-    private let x = SQLite.Expression<Int>("x")
-    private let y = SQLite.Expression<Int>("y")
-    private let width = SQLite.Expression<Int>("width")
-    private let height = SQLite.Expression<Int>("height")
-    private let ocrText = SQLite.Expression<String>("ocr_text")
-    private let mp4LargePath = SQLite.Expression<String>("mp4_large_path")
-    private let mp4SmallPath = SQLite.Expression<String>("mp4_small_path")
-
-    init(files: Files) throws {
-        let dbPath = files.databaseFile.path
-        guard FileManager.default.createFile(atPath: dbPath, contents: nil) else {
-            throw DatabaseError.fileError("Failed to create '\(dbPath)'")
-        }
-
-        db = try Connection(dbPath)
-        try create()
-    }
-
-    func create() throws {
-        try db.run(records.create(ifNotExists: true) { t in
-            t.column(timestamp, primaryKey: true)
-            t.column(windowId)
-            t.column(windowName)
-            t.column(appId)
-            t.column(appName)
-            t.column(url)
-            t.column(x)
-            t.column(y)
-            t.column(width)
-            t.column(height)
-            t.column(ocrText)
-            t.column(mp4LargePath)
-            t.column(mp4SmallPath)
-        })
-    }
-
-    func insert(record: Record) throws {
-        guard let mp4LargeURL = record.mp4LargeURL,
-                let mp4SmallURL = record.mp4SmallURL else {
-            throw DatabaseError.error("MP4 URLs not present in record")
-        }
-        try db.run(records.insert(
-            timestamp <- record.time,
-            windowId <- record.info.windowId,
-            windowName <- record.info.windowName,
-            appId <- record.info.appId,
-            appName <- record.info.appName,
-            url <- record.info.url,
-            x <- Int(record.info.rect.minX),
-            y <- Int(record.info.rect.minY),
-            width <- Int(record.info.rect.width),
-            height <- Int(record.info.rect.height),
-            ocrText <- record.ocrText ?? "",
-            mp4LargePath <- mp4LargeURL.path,
-            mp4SmallPath <- mp4SmallURL.path
-        ))
-    }
-}
-
 enum RecordingError: Error {
     case infoError(String)
 }
 
 actor Recorder {
     private let data: Data
-    private let files: Files
+    // private let files: Files
     private let interval: TimeInterval
     private var lastRecord: Record? = nil
 
-    init(data: Data, interval: TimeInterval, files: Files) {
+    init(data: Data, interval: TimeInterval /*, files: Files*/) {
         self.data = data
         self.interval = interval
-        self.files = files
+        // self.files = files
     }
 
     func record() async throws {
@@ -445,13 +327,17 @@ actor Processor {
     private let data: Data
     private let interval: Int
     private let database: Database
-    private let files: Files
+    // private let files: Files
 
-    init(data: Data, interval: Int, files: Files) throws {
+    init(data: Data, interval: Int /*, files: Files*/) throws {
         self.data = data
         self.interval = interval
-        self.files = files
-        self.database = try Database(files: files)
+        // self.files = files
+
+        // FIXME use files.appSupportDir
+        let appSupportDir = try getAppSupportDir()
+        try FileManager.default.createDirectory(at: appSupportDir, withIntermediateDirectories: true, attributes: nil)
+        self.database = try Database(/*files: files*/)
     }
 
     func process() async throws {
@@ -484,8 +370,9 @@ actor Processor {
                 break
             }
 
-            let mp4LargeURL = files.appSupportDir.appending(path: "\(time)-large.mp4")
-            let mp4SmallURL = files.appSupportDir.appending(path: "\(time)-small.mp4")
+            let appSupportDir = try getAppSupportDir()
+            let mp4LargeURL = /*files.*/ appSupportDir.appending(path: "\(time)-large.mp4")
+            let mp4SmallURL = /*files.*/ appSupportDir.appending(path: "\(time)-small.mp4")
 
             for (index, _) in subrecords.enumerated() {
                 subrecords[index].ocrText = try await performOCR(image: subrecords[index].image)
@@ -623,13 +510,11 @@ func main() {
     print("Starting daemon...")
 
     do {
-        let files = try Files()
+        // let files = try Files()
         let data = Data()
 
-        try FileManager.default.createDirectory(at: files.appSupportDir, withIntermediateDirectories: true, attributes: nil)
-
-        let recorder = Recorder(data: data, interval: 1.0, files: files)
-        let processor = try Processor(data: data, interval: 300, files: files)
+        let recorder = Recorder(data: data, interval: 1.0 /*, files: files*/)
+        let processor = try Processor(data: data, interval: 300 /*, files: files*/)
 
         Task {
             do { try await recorder.record() }
