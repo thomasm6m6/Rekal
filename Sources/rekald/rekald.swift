@@ -81,7 +81,7 @@ actor Files {
         }
         appSupportDir = dir.appending(path: bundleIdentifier)
 
-        databaseFile = appSupportDir.appending(path: "sqlite3.db")
+        databaseFile = appSupportDir.appending(path: "db.sqlite3")
     }
 }
 
@@ -110,22 +110,16 @@ class Database {
 
     init(files: Files) throws {
         let dbPath = files.databaseFile.path
-        let exists = FileManager.default.fileExists(atPath: dbPath)
-        if !exists {
-            guard FileManager.default.createFile(atPath: dbPath, contents: nil) else {
-                throw DatabaseError.fileError("Failed to create '\(dbPath)'")
-            }
+        guard FileManager.default.createFile(atPath: dbPath, contents: nil) else {
+            throw DatabaseError.fileError("Failed to create '\(dbPath)'")
         }
 
         db = try Connection(dbPath)
-
-        if !exists {
-            try create()
-        }
+        try create()
     }
 
     func create() throws {
-        try db.run(records.create { t in
+        try db.run(records.create(ifNotExists: true) { t in
             t.column(timestamp, primaryKey: true)
             t.column(windowId)
             t.column(windowName)
@@ -314,7 +308,7 @@ actor Recorder {
 
     private func isSimilar(image1: CGImage, image2: CGImage) -> Bool {
         if let similarity = pHash(image1: image1, image2: image2) {
-            return similarity > 0.9
+            return similarity > 0.8
         }
         return false
     }
@@ -468,8 +462,8 @@ actor Processor {
         // TODO probably shouldn't copy the records since that's a lot of data.
         // references? indices? pointers?
 
-        if !isDeviceOnPower() {
-            log("Device is not on power; delaying processing")
+        if !isOnPower() {
+            log("Device is using battery power; delaying processing")
             return
         }
 
@@ -485,8 +479,8 @@ actor Processor {
         }
 
         for (time, var subrecords) in recordList {
-            if !isDeviceOnPower() {
-                log("Device is not on power; delaying processing")
+            if !isOnPower() {
+                log("Device is using battery power; delaying processing")
                 break
             }
 
@@ -497,9 +491,6 @@ actor Processor {
                 subrecords[index].ocrText = try await performOCR(image: subrecords[index].image)
                 subrecords[index].mp4LargeURL = mp4LargeURL
                 subrecords[index].mp4SmallURL = mp4SmallURL
-            }
-            for record in subrecords {
-                print("record:", record.mp4LargeURL ?? "no mp4 large url,", record.mp4SmallURL ?? "no mp4 small url")
             }
 
             let subrecordsSmall = subrecords
@@ -617,7 +608,7 @@ actor Processor {
         return analysis.transcript
     }
 
-    private func isDeviceOnPower() -> Bool {
+    private func isOnPower() -> Bool {
         let snapshot = IOPSCopyPowerSourcesInfo().takeRetainedValue()
         let type = IOPSGetProvidingPowerSourceType(snapshot)
         guard let type = type else {
@@ -629,10 +620,6 @@ actor Processor {
 }
 
 func main() {
-    let recordInterval = 1.0    // seconds
-    // let processInterval = 300   // seconds
-    let processInterval = 30
-
     print("Starting daemon...")
 
     do {
@@ -641,34 +628,24 @@ func main() {
 
         try FileManager.default.createDirectory(at: files.appSupportDir, withIntermediateDirectories: true, attributes: nil)
 
-        let recorder = Recorder(data: data, interval: recordInterval, files: files)
-        let processor = try Processor(data: data, interval: processInterval, files: files)
+        let recorder = Recorder(data: data, interval: 1.0, files: files)
+        let processor = try Processor(data: data, interval: 300, files: files)
 
         Task {
-            do {
-                try await recorder.record()
-            } catch {
-                print("Error capturing snapshot: \(error)")
-            }
+            do { try await recorder.record() }
+            catch { print("Error capturing snapshot: \(error)") }
         }
-        Task { try await recorder.record() }
-        Timer.scheduledTimer(withTimeInterval: recordInterval, repeats: true) { _ in
+        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
             Task {
-                do {
-                    try await recorder.record()
-                } catch {
-                    print("Error capturing snapshot: \(error)")
-                }
+                do { try await recorder.record() }
+                catch { print("Error capturing snapshot: \(error)") }
             }
         }
 
-        Timer.scheduledTimer(withTimeInterval: TimeInterval(processInterval), repeats: true) { _ in
+        Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { _ in
             Task {
-                do {
-                    try await processor.process()
-                } catch {
-                    print("Error processing snapshots: \(error)")
-                }
+                do { try await processor.process() }
+                catch { print("Error processing snapshots: \(error)") }
             }
         }
     } catch {
