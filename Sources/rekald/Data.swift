@@ -2,22 +2,21 @@ import Foundation
 import Common
 
 actor Data {
-    // Might make more sense to just define this in Recorder and pass Recorder instance to Processor
-    private var records: [Record] = [] // last 5-10 min of images
+    private var snapshots: [Snapshot] = [] // last 5-10 min of images
 
-    func get() -> [Record] {
-        return records
+    func get() -> [Snapshot] {
+        return snapshots
     }
 
-    func get(at index: Int) -> Record {
-        return records[index]
+    func get(at index: Int) -> Snapshot {
+        return snapshots[index]
     }
 
-    func add(record: Record) {
-        records.append(record)
+    func add(snapshot: Snapshot) {
+        snapshots.append(snapshot)
     }
 
     func remove(at index: Int) {
-        records.remove(at: index)
+        snapshots.remove(at: index)
     }
 }

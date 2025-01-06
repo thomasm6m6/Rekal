@@ -2,7 +2,7 @@ import Foundation
 import CoreGraphics
 import SQLite
 
-public struct RecordInfo: Sendable {
+public struct SnapshotInfo: Sendable {
     public var windowId: Int
     public var rect: CGRect
     public var windowName = ""
@@ -20,21 +20,31 @@ public struct RecordInfo: Sendable {
     }
 }
 
-public struct Record: Sendable {
+public struct Snapshot: Sendable {
     public var image: CGImage
     public var time: Int
-    public var info: RecordInfo
+    public var info: SnapshotInfo
     public var ocrText: String?
-    public var mp4LargeURL: URL?
-    public var mp4SmallURL: URL?
 
-    public init(image: CGImage, time: Int, info: RecordInfo, ocrText: String? = nil, mp4LargeURL: URL? = nil, mp4SmallURL: URL? = nil) {
+    public init(image: CGImage, time: Int, info: SnapshotInfo, ocrText: String? = nil) {
         self.image = image
         self.time = time
         self.info = info
         self.ocrText = ocrText
-        self.mp4LargeURL = mp4LargeURL
-        self.mp4SmallURL = mp4SmallURL
+    }
+}
+
+public struct Video: Sendable {
+    public var timestamp: Int
+    public var frameCount: Int
+    public var smallURL: URL
+    public var largeURL: URL
+
+    public init(timestamp: Int, frameCount: Int, smallURL: URL, largeURL: URL) {
+        self.timestamp = timestamp
+        self.frameCount = frameCount
+        self.smallURL = smallURL
+        self.largeURL = largeURL
     }
 }
 
@@ -46,35 +56,35 @@ public enum FilesError: Error {
     case nonexistentDirectory(String)
 }
 
-public func getAppSupportDir() throws -> URL {
-let bundleIdentifier = "com.example.Rekal" // TODO bundle.main.bundleIdentifier(?)
-guard let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-    throw FilesError.nonexistentDirectory("Failed to get location of Application Support directory")
-}
-let appSupportDir = dir.appending(path: bundleIdentifier)
-return appSupportDir
-}
+// public func getAppSupportDir() throws -> URL {
+// let bundleIdentifier = "com.example.Rekal" // TODO bundle.main.bundleIdentifier(?)
+// guard let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+//     throw FilesError.nonexistentDirectory("Failed to get location of Application Support directory")
+// }
+// let appSupportDir = dir.appending(path: bundleIdentifier)
+// return appSupportDir
+// }
 
-public func getDatabaseFile() throws -> URL {
-    let appSupportDir = try getAppSupportDir()
-    return appSupportDir.appending(path: "db.sqlite3")
-}
+// public func getDatabaseFile() throws -> URL {
+//     let appSupportDir = try getAppSupportDir()
+//     return appSupportDir.appending(path: "db.sqlite3")
+// }
 
 public class Files {
-    public let appSupportDir: URL
-    public let databaseFile: URL
-
-    public init() throws {
-        let bundleIdentifier = "com.example.Rekal" // TODO bundle.main.bundleidentifier(?)
+    public static func appSupportDir() throws -> URL {
+        let bundleIdentifier = "com.example.Rekal" // TODO bundle.main.bundleIdentifier(?)
         guard let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             throw FilesError.nonexistentDirectory("Failed to get location of Application Support directory")
         }
-        appSupportDir = dir.appending(path: bundleIdentifier)
-
-        databaseFile = appSupportDir.appending(path: "db.sqlite3")
+        return dir.appending(path: bundleIdentifier)
     }
 
-    public func tempDir() throws -> URL {
+    public static func databaseFile() throws -> URL {
+        let appSupportDir = try self.appSupportDir()
+        return appSupportDir.appending(path: "db.sqlite3")
+    }
+
+    public static func tempDir() throws -> URL {
         let dir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
@@ -83,78 +93,124 @@ public class Files {
     // Maybe functions to iterate over "small" mp4s and "large" mp4s
 }
 
+/*
+CREATE TABLE snapshots {
+timestamp INT PRIMARY KEY,
+...
+FOREIGN KEY (video_timestamp) REFERENCES videos(timestamp)
+}
+
+CREATE TABLE videos {
+timestamp INT PRIMARY KEY,
+frames INT,
+small_file TEXT UNIQUE,
+large_file TEXT UNIQUE
+}
+*/
+
 public enum DatabaseError: Error {
     case fileError(String)
     case error(String)
 }
 
 public class Database {
-    private let db: Connection
-    private let records = Table("records")
+    let db: Connection
+    let snapshotTable = Table("snapshots")
+    let videoTable = Table("videos")
 
-    private let timestamp = SQLite.Expression<Int>("timestamp")
-    private let windowId = SQLite.Expression<Int>("window_id")
-    private let windowName = SQLite.Expression<String?>("window_name")
-    private let appId = SQLite.Expression<String?>("app_id")
-    private let appName = SQLite.Expression<String?>("app_name")
-    private let url = SQLite.Expression<String?>("url")
-    private let x = SQLite.Expression<Int>("x")
-    private let y = SQLite.Expression<Int>("y")
-    private let width = SQLite.Expression<Int>("width")
-    private let height = SQLite.Expression<Int>("height")
-    private let ocrText = SQLite.Expression<String>("ocr_text")
-    private let mp4LargePath = SQLite.Expression<String>("mp4_large_path")
-    private let mp4SmallPath = SQLite.Expression<String>("mp4_small_path")
+    let snapshotTimestamp = SQLite.Expression<Int>("timestamp")
+    let snapshotWindowID = SQLite.Expression<Int>("window_id")
+    let snapshotWindowName = SQLite.Expression<String?>("window_name")
+    let snapshotAppID = SQLite.Expression<String?>("app_id")
+    let snapshotAppName = SQLite.Expression<String?>("app_name")
+    let snapshotURL = SQLite.Expression<String?>("url")
+    let snapshotX = SQLite.Expression<Int>("x")
+    let snapshotY = SQLite.Expression<Int>("y")
+    let snapshotWidth = SQLite.Expression<Int>("width")
+    let snapshotHeight = SQLite.Expression<Int>("height")
+    let snapshotOCRText = SQLite.Expression<String?>("ocr_text")
+    let snapshotVideoTimestamp = SQLite.Expression<Int>("snapshotVideoTimestamp")
 
-    // public init(files: Files) throws {
+    let videoTimestamp = SQLite.Expression<Int>("timestamp")
+    let videoFrameCount = SQLite.Expression<Int>("frame_count")
+    let videoSmallPath = SQLite.Expression<String>("small_file")
+    let videoLargePath = SQLite.Expression<String>("large_file")
+
     public init() throws {
-        let databaseFile = try getDatabaseFile()
-        let dbPath = /*files.*/ databaseFile.path
-        guard FileManager.default.createFile(atPath: dbPath, contents: nil) else {
-            throw DatabaseError.fileError("Failed to create '\(dbPath)'")
+        let file = try Files.databaseFile()
+        if !FileManager.default.fileExists(atPath: file.path) {
+            guard FileManager.default.createFile(atPath: file.path, contents: nil) else {
+                throw DatabaseError.fileError("Failed to create '\(file.path)'")
+            }
         }
 
-        db = try Connection(dbPath)
-        try create()
+        db = try Connection(file.path)
+        try createSnapshotTable()
+        try createVideoTable()
     }
 
-    public func create() throws {
-        try db.run(records.create(ifNotExists: true) { t in
-            t.column(timestamp, primaryKey: true)
-            t.column(windowId)
-            t.column(windowName)
-            t.column(appId)
-            t.column(appName)
-            t.column(url)
-            t.column(x)
-            t.column(y)
-            t.column(width)
-            t.column(height)
-            t.column(ocrText)
-            t.column(mp4LargePath)
-            t.column(mp4SmallPath)
+    public func createSnapshotTable() throws {
+        try db.run(snapshotTable.create(ifNotExists: true) { t in
+            t.column(snapshotTimestamp, primaryKey: true)
+            t.column(snapshotWindowID)
+            t.column(snapshotWindowName)
+            t.column(snapshotAppID)
+            t.column(snapshotAppName)
+            t.column(snapshotURL)
+            t.column(snapshotX)
+            t.column(snapshotY)
+            t.column(snapshotWidth)
+            t.column(snapshotHeight)
+            t.column(snapshotOCRText)
+            t.column(snapshotVideoTimestamp, references: videoTable, videoTimestamp)
         })
     }
 
-    public func insert(record: Record) throws {
-        guard let mp4LargeURL = record.mp4LargeURL,
-                let mp4SmallURL = record.mp4SmallURL else {
-            throw DatabaseError.error("MP4 URLs not present in record")
-        }
-        try db.run(records.insert(
-            timestamp <- record.time,
-            windowId <- record.info.windowId,
-            windowName <- record.info.windowName,
-            appId <- record.info.appId,
-            appName <- record.info.appName,
-            url <- record.info.url,
-            x <- Int(record.info.rect.minX),
-            y <- Int(record.info.rect.minY),
-            width <- Int(record.info.rect.width),
-            height <- Int(record.info.rect.height),
-            ocrText <- record.ocrText ?? "",
-            mp4LargePath <- mp4LargeURL.path,
-            mp4SmallPath <- mp4SmallURL.path
+    public func createVideoTable() throws {
+        try db.run(videoTable.create(ifNotExists: true) { t in
+            t.column(videoTimestamp, primaryKey: true)
+            t.column(videoFrameCount)
+            t.column(videoSmallPath, unique: true)
+            t.column(videoLargePath, unique: true)
+        })
+    }
+
+    public func insertSnapshot(snapshot: Snapshot) throws {
+        try db.run(snapshotTable.insert(
+            snapshotTimestamp <- snapshot.time,
+            snapshotWindowID <- snapshot.info.windowId,
+            snapshotWindowName <- snapshot.info.windowName,
+            snapshotAppID <- snapshot.info.appId,
+            snapshotAppName <- snapshot.info.appName,
+            snapshotURL <- snapshot.info.url,
+            snapshotX <- Int(snapshot.info.rect.minX),
+            snapshotY <- Int(snapshot.info.rect.minY),
+            snapshotWidth <- Int(snapshot.info.rect.width),
+            snapshotHeight <- Int(snapshot.info.rect.height),
+            snapshotOCRText <- snapshot.ocrText
         ))
+    }
+
+    public func insertVideo(video: Video) throws {
+        try db.run(videoTable.insert(
+            videoTimestamp <- video.timestamp,
+            videoFrameCount <- video.frameCount,
+            videoSmallPath <- video.smallURL.path,
+            videoLargePath <- video.largeURL.path
+        ))
+    }
+
+    public func videosBetween(minTime: Int, maxTime: Int) throws -> [Video] {
+        var videos: [Video] = []
+        let query = videoTable.filter(videoTimestamp >= minTime && videoTimestamp < maxTime)
+        for row in try db.prepare(query) {
+            videos.append(Video(
+                timestamp: row[videoTimestamp],
+                frameCount: row[videoFrameCount],
+                smallURL: URL(filePath: row[videoSmallPath]),
+                largeURL: URL(filePath: row[videoLargePath])
+            ))
+        }
+        return videos
     }
 }

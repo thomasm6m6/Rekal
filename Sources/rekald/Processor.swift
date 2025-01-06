@@ -15,23 +15,21 @@ actor Processor {
     private let data: Data
     private let interval: Int
     private let database: Database
-    // private let files: Files
 
-    init(data: Data, interval: Int /*, files: Files*/) throws {
+    init(data: Data, interval: Int) throws {
         self.data = data
         self.interval = interval
-        // self.files = files
 
-        // FIXME use files.appSupportDir
-        let appSupportDir = try getAppSupportDir()
+        let appSupportDir = try Files.appSupportDir()
         try FileManager.default.createDirectory(at: appSupportDir, withIntermediateDirectories: true, attributes: nil)
-        self.database = try Database(/*files: files*/)
+        self.database = try Database()
     }
 
     func process() async throws {
         try await saveRecords()
     }
 
+    // FIXME small and large MP4s are the same size and I think same resolution
     private func saveRecords() async throws {
         // TODO probably shouldn't copy the records since that's a lot of data.
         // references? indices? pointers?
@@ -41,60 +39,64 @@ actor Processor {
             return
         }
 
-        var recordList: [Int: [Record]] = [:]
+        var snapshotList: [Int: [Snapshot]] = [:]
         let now = Int(Date().timeIntervalSince1970)
 
-        for record in await data.get() {
-            if now - record.time > interval {
+        print(await data.get())
+        for snapshot in await data.get() {
+            if now - snapshot.time > interval {
                 break
             }
-            let time = record.time / interval * interval
-            recordList[time, default: []].append(record)
+            let time = snapshot.time / interval * interval
+            snapshotList[time, default: []].append(snapshot)
         }
 
-        for (time, var subrecords) in recordList {
+        for (timestamp, var snapshots) in snapshotList {
             if !isOnPower() {
                 log("Device is using battery power; delaying processing")
                 break
             }
+            log("Processing for \(timestamp)")
 
-            let appSupportDir = try getAppSupportDir()
-            let mp4LargeURL = /*files.*/ appSupportDir.appending(path: "\(time)-large.mp4")
-            let mp4SmallURL = /*files.*/ appSupportDir.appending(path: "\(time)-small.mp4")
+            let appSupportDir = try Files.appSupportDir()
+            let videoLargeURL = appSupportDir.appending(path: "\(timestamp)-large.mp4")
+            let videoSmallURL = appSupportDir.appending(path: "\(timestamp)-small.mp4")
 
-            for (index, _) in subrecords.enumerated() {
-                subrecords[index].ocrText = try await performOCR(image: subrecords[index].image)
-                subrecords[index].mp4LargeURL = mp4LargeURL
-                subrecords[index].mp4SmallURL = mp4SmallURL
+            for (index, _) in snapshots.enumerated() {
+                snapshots[index].ocrText = try await performOCR(image: snapshots[index].image)
             }
 
-            let subrecordsSmall = subrecords
-            for var record in subrecordsSmall {
-                guard let image = resize480p(record.image) else {
+            let snapshotsSmall = snapshots
+            for var snapshot in snapshotsSmall {
+                guard let image = resize480p(snapshot.image) else {
                     throw ProcessingError.error("Resizing images failed")
                 }
-                record.image = image
+                snapshot.image = image
             }
 
-            try await encodeMP4(records: subrecords, outputURL: mp4LargeURL)
-            try await encodeMP4(records: subrecordsSmall, outputURL: mp4SmallURL)
+            let video = Video(timestamp: timestamp, frameCount: snapshots.count,
+                smallURL: videoSmallURL, largeURL: videoLargeURL)
 
-            for record in subrecords {
-                try database.insert(record: record)
+            try await encodeMP4(snapshots: snapshotsSmall, outputURL: videoSmallURL)
+            try await encodeMP4(snapshots: snapshots, outputURL: videoLargeURL)
+
+            try database.insertVideo(video: video)
+            for snapshot in snapshots {
+                try database.insertSnapshot(snapshot: snapshot)
             }
 
             // TODO abomination
-            for record in subrecords {
+            for snapshot in snapshots {
                 for (index, _) in await data.get().enumerated() {
                     let time = await data.get(at: index).time
-                    if time == record.time {
+                    if time == snapshot.time {
                         await data.remove(at: index)
                         break
                     }
                 }
             }
 
-            log("Created \(time).mp4")
+            log("Created \(timestamp).mp4")
         }
     }
 
@@ -127,13 +129,13 @@ actor Processor {
     }
 
     // TODO: see if AVFoundation can be made faster / make smaller files; if not, use ffmpeg (ramdisk, tmpfs, or API)
-    private func encodeMP4(records: [Record], outputURL: URL) async throws {
-        guard let firstRecord = records.first else {
-            throw ProcessingError.imageDestinationCreationFailed("No records to encode")
+    private func encodeMP4(snapshots: [Snapshot], outputURL: URL) async throws {
+        guard let firstSnapshot = snapshots.first else {
+            throw ProcessingError.imageDestinationCreationFailed("No snapshots to encode")
         }
 
-        let width = firstRecord.image.width
-        let height = firstRecord.image.height
+        let width = firstSnapshot.image.width
+        let height = firstSnapshot.image.height
 
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
         let settings: [String: Any] = [
@@ -148,7 +150,7 @@ actor Processor {
         writer.startWriting()
         writer.startSession(atSourceTime: .zero)
 
-        for (index, record) in records.enumerated() {
+        for (index, snapshot) in snapshots.enumerated() {
             let time = CMTime(value: CMTimeValue(index), timescale: 1)
             while !input.isReadyForMoreMediaData {
                 await Task.yield()
@@ -165,7 +167,7 @@ actor Processor {
             }
 
             let context = CIContext()
-            let ciImage = CIImage(cgImage: record.image)
+            let ciImage = CIImage(cgImage: snapshot.image)
             context.render(ciImage, to: buffer)
 
             adaptor.append(buffer, withPresentationTime: time)

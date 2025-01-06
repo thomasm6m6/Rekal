@@ -1,7 +1,8 @@
 import SwiftUI
 import Foundation
 import AVFoundation
-import UniformTypeIdentifiers
+import UniformTypeIdentifiers // XXX necessary?
+import Common
 
 // TODO don't block the UI while loading images
 // TODO load full images
@@ -14,10 +15,8 @@ import UniformTypeIdentifiers
 // TODO zoom
 // FIXME currentIndex is not updated when loadImages is called
 
-struct Video {
-    var url: URL
-    var timestamp: Int
-}
+// TODO XPC/EventKit
+// TODO ramdisk/tmpfs/api for decoding
 
 @MainActor
 class VideoFrameManager: ObservableObject {
@@ -26,103 +25,56 @@ class VideoFrameManager: ObservableObject {
     @Published var videoIndex = 0
     @Published var isProcessing = false
 
+    // TODO consider whether SQL JOIN function would be useful
     func extractFrames(date: Date) {
         images = []
         videos = []
         videoIndex = 0
 
-        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        do {
-            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        } catch {
-            print("Error creating directory: \(error)")
-            return
-        }
-
         let minTimestamp = Int(Calendar.current.startOfDay(for: date).timeIntervalSince1970)
         let maxTimestamp = minTimestamp + 86400
 
-        for timestamp in stride(from: minTimestamp, to: maxTimestamp, by: 300) {
-            let videoURL = URL(fileURLWithPath: "/Users/tm/ss/small/\(timestamp).mp4")
-            if !FileManager.default.isReadableFile(atPath: videoURL.path) {
-                continue
-            }
-            let video = Video(url: videoURL, timestamp: timestamp)
-            videos.append(video)
-        }
-
-        Task {
-            isProcessing = true
-            for video in videos {
-                print(video)
-
-                let process = Process()
-                process.executableURL = URL(fileURLWithPath: "/opt/homebrew/bin/ffmpeg")
-                process.arguments = [
-                    "-nostdin",
-                    "-v", "error",
-                    "-i", video.url.path,
-                    "\(tempDir.path)/\(video.timestamp)-%04d.png"
-                ]
-
-                do {
-                    try process.run()
-                    process.waitUntilExit()
-                } catch {
-                    print("Error: \(error)")
-                }
-                videoIndex += 1
-            }
-            do {
-                let imageURLs = try FileManager.default.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil)
-                    .filter { $0.pathExtension.lowercased() == "png" }
-                    .sorted { $0.path < $1.path }
-                images = imageURLs.compactMap { NSImage(contentsOf: $0) }
-            } catch {
-                print("Error: \(error)")
-            }
-            isProcessing = false
-            do {
-                try FileManager.default.removeItem(at: tempDir)
-            } catch {
-                print("Error: \(error)")
-            }
-        }
-    }
-
-    func loadImages() {
-        images = []
-        videos = []
-        videoIndex = 0
-
-        let now = Int(Date().timeIntervalSince1970)
-        let rootDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("ss")
-        let imageDir = rootDir.appendingPathComponent("img")
-        var imageURLs: [URL] = []
-
-        // TODO might be able to sort in contentsOfDirectory instead
         do {
-            let contents = try FileManager.default.contentsOfDirectory(
-                at: imageDir,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: .skipsHiddenFiles
-            )
+            let db = try Database()
+            let tempDir = try Files.tempDir()
+            videos = try db.videosBetween(minTime: minTimestamp, maxTime: maxTimestamp)        
+            print(videos)
 
-            for dirURL in contents {
-                let imageURL = dirURL.appendingPathComponent("image.png")
-                guard let timestamp = Int(dirURL.lastPathComponent),
-                        FileManager.default.fileExists(atPath: imageURL.path),
-                        now - timestamp <= 300 else {
-                    continue
+            Task {
+                isProcessing = true
+                for video in videos {
+                    print(video)
+
+                    let process = Process()
+                    process.executableURL = URL(filePath: "/opt/homebrew/bin/ffmpeg")
+                    process.arguments = [
+                        "-nostdin",
+                        "-v", "error",
+                        "-i", video.smallURL.path,
+                        "\(tempDir.path)/\(video.timestamp)-%04d.png"
+                    ]
+                    print(process.arguments ?? "")
+
+                    do {
+                        try process.run()
+                        process.waitUntilExit()
+
+                        videoIndex += 1
+
+                        // TODO don't get the image URLs this way--we have frameCount so can calculate manually
+                        let imageURLs = try FileManager.default.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil)
+                            .filter { $0.pathExtension.lowercased() == "png" }
+                            .sorted { $0.path < $1.path }
+                        images = imageURLs.compactMap { NSImage(contentsOf: $0) }
+                    } catch {
+                        print(error)
+                    }
                 }
-
-                imageURLs.append(imageURL)
+                isProcessing = false
+                try FileManager.default.removeItem(at: tempDir)
             }
-
-            let sortedImageURLs = imageURLs.sorted { $0.path < $1.path }
-            images = sortedImageURLs.compactMap { NSImage(contentsOf: $0) }
         } catch {
-            print("Error: \(error)")
+            print(error)
         }
     }
 }
@@ -147,22 +99,14 @@ struct MainView: View {
                 }
                 .disabled(frameManager.isProcessing)
 
-                Button("Load current") {
-                    frameManager.loadImages()
-                }
-                .disabled(frameManager.isProcessing)
-                
                 if frameManager.isProcessing {
                     ProgressView("Processing...")
                 }
-                
+
                 Spacer()
             }
         } detail: {
             ImageView(images: frameManager.images, videos: frameManager.videos, videoIndex: frameManager.videoIndex)
-        }
-        .onAppear {
-            frameManager.loadImages()
         }
     }
 }
@@ -175,7 +119,7 @@ struct ImageView: View {
     @State private var isPlaying = false
     
     let timer = Timer.publish(every: 0.025, on: .main, in: .common).autoconnect()
-    
+
     var body: some View {
         VStack {
             if !images.isEmpty {
@@ -189,15 +133,15 @@ struct ImageView: View {
             }
 
             Spacer()
-            
+
             HStack {
                 Button(action: previousImage) {
                     Image(systemName: "arrow.left")
                 }
                 .disabled(isPlaying || currentIndex <= 0)
-                
+
                 Spacer()
-                
+
                 Text("\(videoIndex)/\(videos.count) videos")
                     .font(.system(.body, design: .monospaced))
                     .foregroundColor(.secondary)
@@ -211,9 +155,9 @@ struct ImageView: View {
                 Text("\(currentIndex)/\(images.count) frames")
                     .font(.system(.body, design: .monospaced))
                     .foregroundColor(.secondary)
-                
+
                 Spacer()
-                
+
                 Button(action: nextImage) {
                     Image(systemName: "arrow.right")
                 }
@@ -227,13 +171,13 @@ struct ImageView: View {
             }
         }
     }
-    
+
     private func previousImage() {
         if currentIndex > 0 {
             currentIndex -= 1
         }
     }
-    
+
     private func nextImage() {
         if currentIndex < images.count - 1 {
             currentIndex += 1

@@ -18,19 +18,14 @@ import Common
 @main
 struct Rekald {
     static func main() {
-        print("Starting daemon...")
+        log("Starting daemon...")
 
         do {
-            // let files = try Files()
             let data = Data()
 
-            let recorder = Recorder(data: data, interval: 1.0 /*, files: files*/)
-            let processor = try Processor(data: data, interval: 300 /*, files: files*/)
+            let recorder = Recorder(data: data, interval: 1.0)
+            let processor = try Processor(data: data, interval: 300)
 
-            Task {
-                do { try await recorder.record() }
-                catch { print("Error capturing snapshot: \(error)") }
-            }
             Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
                 Task {
                     do { try await recorder.record() }
@@ -40,6 +35,7 @@ struct Rekald {
 
             Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { _ in
                 Task {
+                    log("running process function")
                     do { try await processor.process() }
                     catch { print("Error processing snapshots: \(error)") }
                 }

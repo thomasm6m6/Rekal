@@ -11,7 +11,7 @@ actor Recorder {
     private let data: Data
     // private let files: Files
     private let interval: TimeInterval
-    private var lastRecord: Record? = nil
+    private var lastSnapshot: Snapshot? = nil
 
     init(data: Data, interval: TimeInterval /*, files: Files*/) {
         self.data = data
@@ -28,19 +28,19 @@ actor Recorder {
         // XXX not sure this code runs the way I expect
         // Expect catch clause, but not guard-else clause, to be run if `capture` throws
         do {
-            guard let record = try await capture() else {
+            guard let snapshot = try await capture() else {
                 return
             }
-            await data.add(record: record)
+            await data.add(snapshot: snapshot)
             log("Saved image")
         } catch {
             log("Did not save image: \(error)")
         }
     }
 
-    private func capture() async throws -> Record? {
+    private func capture() async throws -> Snapshot? {
         let timestamp = Int(Date().timeIntervalSince1970)
-        var info: RecordInfo? = nil
+        var info: SnapshotInfo? = nil
 
         guard let frontmostAppPID = NSWorkspace.shared.frontmostApplication?.processIdentifier else {
             return nil
@@ -59,6 +59,7 @@ actor Recorder {
             }
         }
         guard let info = info else {
+            // Happens when the focused application has no windows, usually after closing a window
             throw RecordingError.infoError("Failed to get window info")
         }
 
@@ -92,18 +93,18 @@ actor Recorder {
         config.height = display.height
 
         let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
-        if let lastRecord = lastRecord, isSimilar(image1: lastRecord.image, image2: image) {
+        if let lastSnapshot = lastSnapshot, isSimilar(image1: lastSnapshot.image, image2: image) {
             log("Images are similar; skipping")
             return nil
         }
 
-        let record = Record(image: image, time: timestamp, info: info)
-        lastRecord = record
-        return record
+        let snapshot = Snapshot(image: image, time: timestamp, info: info)
+        lastSnapshot = snapshot
+        return snapshot
     }
 
-    private func getWindowInfo(window: SCWindow) async -> RecordInfo {
-        var info = RecordInfo(windowId: Int(window.windowID), rect: window.frame)
+    private func getWindowInfo(window: SCWindow) async -> SnapshotInfo {
+        var info = SnapshotInfo(windowId: Int(window.windowID), rect: window.frame)
 
         if let title = window.title {
             info.windowName = title
@@ -114,8 +115,8 @@ actor Recorder {
             info.appId = app.bundleIdentifier
 
             if app.bundleIdentifier == "com.google.Chrome" {
-                if let lastRecord = lastRecord, window.title == lastRecord.info.windowName {
-                    info.url = lastRecord.info.url
+                if let lastSnapshot = lastSnapshot, window.title == lastSnapshot.info.windowName {
+                    info.url = lastSnapshot.info.url
                     return info
                 } else if let url = getBrowserURL() {
                     info.url = url
