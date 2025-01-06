@@ -22,13 +22,13 @@ public struct SnapshotInfo: Sendable {
 
 public struct Snapshot: Sendable {
     public var image: CGImage
-    public var time: Int
+    public var timestamp: Int
     public var info: SnapshotInfo
     public var ocrText: String?
 
     public init(image: CGImage, time: Int, info: SnapshotInfo, ocrText: String? = nil) {
         self.image = image
-        self.time = time
+        self.timestamp = time
         self.info = info
         self.ocrText = ocrText
     }
@@ -37,14 +37,12 @@ public struct Snapshot: Sendable {
 public struct Video: Sendable {
     public var timestamp: Int
     public var frameCount: Int
-    public var smallURL: URL
-    public var largeURL: URL
+    public var url: URL
 
-    public init(timestamp: Int, frameCount: Int, smallURL: URL, largeURL: URL) {
+    public init(timestamp: Int, frameCount: Int, url: URL) {
         self.timestamp = timestamp
         self.frameCount = frameCount
-        self.smallURL = smallURL
-        self.largeURL = largeURL
+        self.url = url
     }
 }
 
@@ -56,22 +54,28 @@ public enum FilesError: Error {
     case nonexistentDirectory(String)
 }
 
-// public func getAppSupportDir() throws -> URL {
-// let bundleIdentifier = "com.example.Rekal" // TODO bundle.main.bundleIdentifier(?)
-// guard let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-//     throw FilesError.nonexistentDirectory("Failed to get location of Application Support directory")
-// }
-// let appSupportDir = dir.appending(path: bundleIdentifier)
-// return appSupportDir
-// }
+// TODO this is probably unsafe/wrong
+public class Files: @unchecked Sendable {
+    public var appSupportDir: URL
+    public var databaseFile: URL
 
-// public func getDatabaseFile() throws -> URL {
-//     let appSupportDir = try getAppSupportDir()
-//     return appSupportDir.appending(path: "db.sqlite3")
-// }
+    public static let `default`: Files = {
+        do {
+            return try Files(
+                appSupportDir: Files.getAppSupportDir(),
+                databaseFile: Files.getDatabaseFile()
+            )
+        } catch {
+            fatalError("Failed to initialize default Files instance: \(error)")
+        }
+    }()
 
-public class Files {
-    public static func appSupportDir() throws -> URL {
+    public init(appSupportDir: URL, databaseFile: URL) {
+        self.appSupportDir = appSupportDir
+        self.databaseFile = databaseFile
+    }
+
+    public static func getAppSupportDir() throws -> URL {
         let bundleIdentifier = "com.example.Rekal" // TODO bundle.main.bundleIdentifier(?)
         guard let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
             throw FilesError.nonexistentDirectory("Failed to get location of Application Support directory")
@@ -79,8 +83,8 @@ public class Files {
         return dir.appending(path: bundleIdentifier)
     }
 
-    public static func databaseFile() throws -> URL {
-        let appSupportDir = try self.appSupportDir()
+    public static func getDatabaseFile() throws -> URL {
+        let appSupportDir = try self.getAppSupportDir()
         return appSupportDir.appending(path: "db.sqlite3")
     }
 
@@ -90,23 +94,8 @@ public class Files {
         return dir
     }
 
-    // Maybe functions to iterate over "small" mp4s and "large" mp4s
+    // Maybe functions to iterate over mp4s
 }
-
-/*
-CREATE TABLE snapshots {
-timestamp INT PRIMARY KEY,
-...
-FOREIGN KEY (video_timestamp) REFERENCES videos(timestamp)
-}
-
-CREATE TABLE videos {
-timestamp INT PRIMARY KEY,
-frames INT,
-small_file TEXT UNIQUE,
-large_file TEXT UNIQUE
-}
-*/
 
 public enum DatabaseError: Error {
     case fileError(String)
@@ -133,11 +122,10 @@ public class Database {
 
     let videoTimestamp = SQLite.Expression<Int>("timestamp")
     let videoFrameCount = SQLite.Expression<Int>("frame_count")
-    let videoSmallPath = SQLite.Expression<String>("small_file")
-    let videoLargePath = SQLite.Expression<String>("large_file")
+    let videoPath = SQLite.Expression<String>("path")
 
     public init() throws {
-        let file = try Files.databaseFile()
+        let file = Files.default.databaseFile
         if !FileManager.default.fileExists(atPath: file.path) {
             guard FileManager.default.createFile(atPath: file.path, contents: nil) else {
                 throw DatabaseError.fileError("Failed to create '\(file.path)'")
@@ -170,14 +158,13 @@ public class Database {
         try db.run(videoTable.create(ifNotExists: true) { t in
             t.column(videoTimestamp, primaryKey: true)
             t.column(videoFrameCount)
-            t.column(videoSmallPath, unique: true)
-            t.column(videoLargePath, unique: true)
+            t.column(videoPath, unique: true)
         })
     }
 
     public func insertSnapshot(snapshot: Snapshot) throws {
         try db.run(snapshotTable.insert(
-            snapshotTimestamp <- snapshot.time,
+            snapshotTimestamp <- snapshot.timestamp,
             snapshotWindowID <- snapshot.info.windowId,
             snapshotWindowName <- snapshot.info.windowName,
             snapshotAppID <- snapshot.info.appId,
@@ -195,8 +182,7 @@ public class Database {
         try db.run(videoTable.insert(
             videoTimestamp <- video.timestamp,
             videoFrameCount <- video.frameCount,
-            videoSmallPath <- video.smallURL.path,
-            videoLargePath <- video.largeURL.path
+            videoPath <- video.url.path
         ))
     }
 
@@ -207,8 +193,7 @@ public class Database {
             videos.append(Video(
                 timestamp: row[videoTimestamp],
                 frameCount: row[videoFrameCount],
-                smallURL: URL(filePath: row[videoSmallPath]),
-                largeURL: URL(filePath: row[videoLargePath])
+                url: URL(filePath: row[videoPath])
             ))
         }
         return videos

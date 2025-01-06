@@ -1,10 +1,7 @@
 import Foundation
 import Common
 
-// TODO replayd is using 4.5gb of memory rn. that might be a problem.
 // TODO use `throw` in more places
-// FIXME figure out why I ended up with a 1 frame mp4 one time
-//       (relatedly, `subrecords` one time only had a length of 1)
 // TODO exit in case of fatal errors like failing to create the db file
 
 // TODO graceful exit where a gentle quit request (e.g. ctrl+c, but
@@ -35,7 +32,6 @@ struct Rekald {
 
             Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { _ in
                 Task {
-                    log("running process function")
                     do { try await processor.process() }
                     catch { print("Error processing snapshots: \(error)") }
                 }

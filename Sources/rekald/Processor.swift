@@ -20,8 +20,7 @@ actor Processor {
         self.data = data
         self.interval = interval
 
-        let appSupportDir = try Files.appSupportDir()
-        try FileManager.default.createDirectory(at: appSupportDir, withIntermediateDirectories: true, attributes: nil)
+        try FileManager.default.createDirectory(at: Files.default.appSupportDir, withIntermediateDirectories: true, attributes: nil)
         self.database = try Database()
     }
 
@@ -29,7 +28,6 @@ actor Processor {
         try await saveRecords()
     }
 
-    // FIXME small and large MP4s are the same size and I think same resolution
     private func saveRecords() async throws {
         // TODO probably shouldn't copy the records since that's a lot of data.
         // references? indices? pointers?
@@ -42,14 +40,16 @@ actor Processor {
         var snapshotList: [Int: [Snapshot]] = [:]
         let now = Int(Date().timeIntervalSince1970)
 
-        print(await data.get())
+        let imgs = await data.get()
+        print(imgs.count)
         for snapshot in await data.get() {
-            if now - snapshot.time > interval {
+            if now - snapshot.timestamp < interval {
                 break
             }
-            let time = snapshot.time / interval * interval
-            snapshotList[time, default: []].append(snapshot)
+            let timestamp = snapshot.timestamp / interval * interval
+            snapshotList[timestamp, default: []].append(snapshot)
         }
+        print(snapshotList)
 
         for (timestamp, var snapshots) in snapshotList {
             if !isOnPower() {
@@ -58,27 +58,15 @@ actor Processor {
             }
             log("Processing for \(timestamp)")
 
-            let appSupportDir = try Files.appSupportDir()
-            let videoLargeURL = appSupportDir.appending(path: "\(timestamp)-large.mp4")
-            let videoSmallURL = appSupportDir.appending(path: "\(timestamp)-small.mp4")
+            let videoURL = Files.default.appSupportDir.appending(path: "\(timestamp).mp4")
 
             for (index, _) in snapshots.enumerated() {
                 snapshots[index].ocrText = try await performOCR(image: snapshots[index].image)
             }
 
-            let snapshotsSmall = snapshots
-            for var snapshot in snapshotsSmall {
-                guard let image = resize480p(snapshot.image) else {
-                    throw ProcessingError.error("Resizing images failed")
-                }
-                snapshot.image = image
-            }
+            try await encodeMP4(snapshots: snapshots, outputURL: videoURL)
 
-            let video = Video(timestamp: timestamp, frameCount: snapshots.count,
-                smallURL: videoSmallURL, largeURL: videoLargeURL)
-
-            try await encodeMP4(snapshots: snapshotsSmall, outputURL: videoSmallURL)
-            try await encodeMP4(snapshots: snapshots, outputURL: videoLargeURL)
+            let video = Video(timestamp: timestamp, frameCount: snapshots.count, url: videoURL)
 
             try database.insertVideo(video: video)
             for snapshot in snapshots {
@@ -88,8 +76,8 @@ actor Processor {
             // TODO abomination
             for snapshot in snapshots {
                 for (index, _) in await data.get().enumerated() {
-                    let time = await data.get(at: index).time
-                    if time == snapshot.time {
+                    let timestamp = await data.get(at: index).timestamp
+                    if timestamp == snapshot.timestamp {
                         await data.remove(at: index)
                         break
                     }
@@ -128,7 +116,8 @@ actor Processor {
         return context.makeImage()
     }
 
-    // TODO: see if AVFoundation can be made faster / make smaller files; if not, use ffmpeg (ramdisk, tmpfs, or API)
+    // FFmpeg with HEVC or AV1, using ramdisk or API+FFI
+    // or: AVFoundation with HEVC (or maybe AV1?)
     private func encodeMP4(snapshots: [Snapshot], outputURL: URL) async throws {
         guard let firstSnapshot = snapshots.first else {
             throw ProcessingError.imageDestinationCreationFailed("No snapshots to encode")
@@ -138,10 +127,16 @@ actor Processor {
         let height = firstSnapshot.image.height
 
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
+        // let settings = AVOutputSettingsPreset.hevc1920x1080
         let settings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.hevc,
             AVVideoWidthKey: width,
             AVVideoHeightKey: height
+            // AVVideoCompressionPropertiesKey: [
+            //     AVVideoAverageBitRateKey: 1_000_000,
+            //     AVVideoQualityKey: 0.5,
+            //     AVVideoMaxKeyFrameIntervalKey: 60
+            // ]
         ]
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: nil)

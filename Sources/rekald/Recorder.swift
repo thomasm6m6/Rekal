@@ -9,14 +9,12 @@ enum RecordingError: Error {
 
 actor Recorder {
     private let data: Data
-    // private let files: Files
     private let interval: TimeInterval
     private var lastSnapshot: Snapshot? = nil
 
-    init(data: Data, interval: TimeInterval /*, files: Files*/) {
+    init(data: Data, interval: TimeInterval) {
         self.data = data
         self.interval = interval
-        // self.files = files
     }
 
     func record() async throws {

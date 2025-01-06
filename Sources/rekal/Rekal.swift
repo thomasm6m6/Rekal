@@ -16,7 +16,9 @@ import Common
 // FIXME currentIndex is not updated when loadImages is called
 
 // TODO XPC/EventKit
-// TODO ramdisk/tmpfs/api for decoding
+// TODO ramdisk/api for decoding?
+// TODO menu bar icon to pause/resume recording
+// TODO button to force processing regardless of battery state
 
 @MainActor
 class VideoFrameManager: ObservableObject {
@@ -50,7 +52,7 @@ class VideoFrameManager: ObservableObject {
                     process.arguments = [
                         "-nostdin",
                         "-v", "error",
-                        "-i", video.smallURL.path,
+                        "-i", video.url.path,
                         "\(tempDir.path)/\(video.timestamp)-%04d.png"
                     ]
                     print(process.arguments ?? "")
