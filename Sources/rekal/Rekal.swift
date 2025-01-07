@@ -14,6 +14,7 @@ import Common
 // TODO export image
 // TODO zoom
 // FIXME currentIndex is not updated when loadImages is called
+// TODO slider for granularity using similarity percentage via hashing
 
 // TODO XPC/EventKit
 // TODO ramdisk/api for decoding?

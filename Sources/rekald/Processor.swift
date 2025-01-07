@@ -6,6 +6,25 @@ import IOKit.ps
 import CoreImage
 import Common
 
+// TODO proper queue algorithm?
+// FIXME only a few images make it into the mp4s
+// FIXME seems to fail silently sometimes. need more logging
+
+class MediaWriter {
+    let input: AVAssetWriterInput
+    let writer: AVAssetWriter
+    let adaptor: AVAssetWriterInputPixelBufferAdaptor
+    let url: URL
+    var index: Int = 0
+
+    init(input: AVAssetWriterInput, writer: AVAssetWriter, adaptor: AVAssetWriterInputPixelBufferAdaptor, url: URL) {
+        self.input = input
+        self.writer = writer
+        self.adaptor = adaptor
+        self.url = url
+    }
+}
+
 enum ProcessingError: Error {
     case imageDestinationCreationFailed(String)
     case error(String)
@@ -29,147 +48,96 @@ actor Processor {
     }
 
     private func saveRecords() async throws {
-        // TODO probably shouldn't copy the records since that's a lot of data.
-        // references? indices? pointers?
+        log("Processing records...")
 
         if !isOnPower() {
             log("Device is using battery power; delaying processing")
             return
         }
 
-        var snapshotList: [Int: [Snapshot]] = [:]
+        var snapshots = await data.get()
+        print("Count:", snapshots.count)
+        let appSupportDir = Files.default.appSupportDir
         let now = Int(Date().timeIntervalSince1970)
+        let maxTimestamp = now / interval * interval
 
-        let imgs = await data.get()
-        print(imgs.count)
-        for snapshot in await data.get() {
-            if now - snapshot.timestamp < interval {
-                break
-            }
-            let timestamp = snapshot.timestamp / interval * interval
-            snapshotList[timestamp, default: []].append(snapshot)
-        }
-        print(snapshotList)
-
-        for (timestamp, var snapshots) in snapshotList {
-            if !isOnPower() {
-                log("Device is using battery power; delaying processing")
-                break
-            }
-            log("Processing for \(timestamp)")
-
-            let videoURL = Files.default.appSupportDir.appending(path: "\(timestamp).mp4")
-
-            for (index, _) in snapshots.enumerated() {
-                snapshots[index].ocrText = try await performOCR(image: snapshots[index].image)
-            }
-
-            try await encodeMP4(snapshots: snapshots, outputURL: videoURL)
-
-            let video = Video(timestamp: timestamp, frameCount: snapshots.count, url: videoURL)
-
-            try database.insertVideo(video: video)
-            for snapshot in snapshots {
-                try database.insertSnapshot(snapshot: snapshot)
-            }
-
-            // TODO abomination
-            for snapshot in snapshots {
-                for (index, _) in await data.get().enumerated() {
-                    let timestamp = await data.get(at: index).timestamp
-                    if timestamp == snapshot.timestamp {
-                        await data.remove(at: index)
-                        break
-                    }
-                }
-            }
-
-            log("Created \(timestamp).mp4")
-        }
-    }
-
-    private func resize480p(_ image: CGImage) -> CGImage? {
-        let width = CGFloat(image.width)
-        let height = CGFloat(image.height)
-        let aspectRatio = width / height
-
-        let newHeight: CGFloat = 480
-        let newWidth = newHeight * aspectRatio
-        let newSize = CGSize(width: newWidth, height: newHeight)
-
-        guard let colorSpace = image.colorSpace,
-                let context = CGContext(
-                    data: nil,
-                    width: Int(newWidth),
-                    height: Int(newHeight),
-                    bitsPerComponent: image.bitsPerComponent,
-                    bytesPerRow: 0,
-                    space: colorSpace,
-                    bitmapInfo: image.bitmapInfo.rawValue
-                ) else {
-            return nil
-        }
-
-        context.interpolationQuality = .high
-        context.draw(image, in: CGRect(origin: .zero, size: newSize))
-
-        return context.makeImage()
-    }
-
-    // FFmpeg with HEVC or AV1, using ramdisk or API+FFI
-    // or: AVFoundation with HEVC (or maybe AV1?)
-    private func encodeMP4(snapshots: [Snapshot], outputURL: URL) async throws {
-        guard let firstSnapshot = snapshots.first else {
-            throw ProcessingError.imageDestinationCreationFailed("No snapshots to encode")
+        guard let firstSnapshot = snapshots.values.first else {
+            log("No snapshots to encode")
+            return
         }
 
         let width = firstSnapshot.image.width
         let height = firstSnapshot.image.height
-
-        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
-        // let settings = AVOutputSettingsPreset.hevc1920x1080
-        let settings: [String: Any] = [
+        var mediaWriters: [Int: MediaWriter] = [:]
+        let writerSettings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.hevc,
             AVVideoWidthKey: width,
             AVVideoHeightKey: height
-            // AVVideoCompressionPropertiesKey: [
-            //     AVVideoAverageBitRateKey: 1_000_000,
-            //     AVVideoQualityKey: 0.5,
-            //     AVVideoMaxKeyFrameIntervalKey: 60
-            // ]
         ]
-        let input = AVAssetWriterInput(mediaType: .video, outputSettings: settings)
-        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: nil)
+        let bufferOptions: [String: Any] = [
+            kCVPixelBufferCGImageCompatibilityKey as String: true,
+            kCVPixelBufferCGBitmapContextCompatibilityKey as String: true
+        ]
 
-        writer.add(input)
-        writer.startWriting()
-        writer.startSession(atSourceTime: .zero)
+        for (timestamp, var snapshot) in snapshots {
+            if timestamp >= maxTimestamp {
+                break
+            }
+            let binTimestamp = timestamp / interval * interval
 
-        for (index, snapshot) in snapshots.enumerated() {
-            let time = CMTime(value: CMTimeValue(index), timescale: 1)
-            while !input.isReadyForMoreMediaData {
+            if mediaWriters[binTimestamp] == nil {
+                let outputURL = appSupportDir.appending(path: "\(binTimestamp).mp4")
+                let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
+                let input = AVAssetWriterInput(mediaType: .video, outputSettings: writerSettings)
+                let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input,
+                    sourcePixelBufferAttributes: nil)
+
+                writer.add(input)
+                writer.startWriting()
+                writer.startSession(atSourceTime: .zero)
+
+                mediaWriters[binTimestamp] = MediaWriter(input: input, writer: writer, adaptor: adaptor, url: outputURL)
+
+                let video = Video(timestamp: binTimestamp, url: outputURL)
+                try database.insertVideo(video)
+            }
+
+            guard let mediaWriter = mediaWriters[binTimestamp] else {
+                throw ProcessingError.error("mediaWriters[\(binTimestamp)] does not exist")
+            }
+
+            // TODO might be able to use timestamp or something else instead of index
+            mediaWriter.index += 1
+            let time = CMTime(value: CMTimeValue(mediaWriter.index), timescale: 1)
+
+            while !mediaWriter.input.isReadyForMoreMediaData {
                 await Task.yield()
             }
 
             var pixelBuffer: CVPixelBuffer?
-            let options: [String: Any] = [
-                kCVPixelBufferCGImageCompatibilityKey as String: true,
-                kCVPixelBufferCGBitmapContextCompatibilityKey as String: true
-            ]
-            let status = CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32ARGB, options as CFDictionary, &pixelBuffer)
+            let status = CVPixelBufferCreate(kCFAllocatorDefault, width, height,
+                kCVPixelFormatType_32ARGB, bufferOptions as CFDictionary, &pixelBuffer)
             guard status == kCVReturnSuccess, let buffer = pixelBuffer else {
-                throw ProcessingError.imageDestinationCreationFailed("Failed to create pixel buffer")
+                throw ProcessingError.error("Failed to create pixel buffer")
             }
 
             let context = CIContext()
             let ciImage = CIImage(cgImage: snapshot.image)
             context.render(ciImage, to: buffer)
 
-            adaptor.append(buffer, withPresentationTime: time)
+            mediaWriter.adaptor.append(buffer, withPresentationTime: time)
+
+            snapshot.ocrText = try await performOCR(image: snapshot.image)
+            try database.insertSnapshot(snapshot, videoTimestamp: binTimestamp)
+            snapshots.removeValue(forKey: timestamp)
         }
 
-        input.markAsFinished()
-        await writer.finishWriting()
+        // TODO async
+        for mediaWriter in mediaWriters.values {
+            mediaWriter.input.markAsFinished()
+            await mediaWriter.writer.finishWriting()
+            log("Wrote \(mediaWriter.url.path)")
+        }
     }
 
     private func performOCR(image: CGImage) async throws -> String? {

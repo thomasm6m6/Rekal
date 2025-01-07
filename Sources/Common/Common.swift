@@ -3,8 +3,8 @@ import CoreGraphics
 import SQLite
 
 public struct SnapshotInfo: Sendable {
-    public var windowId: Int
-    public var rect: CGRect
+    public let windowId: Int
+    public let rect: CGRect
     public var windowName = ""
     public var appId = ""
     public var appName = ""
@@ -21,27 +21,28 @@ public struct SnapshotInfo: Sendable {
 }
 
 public struct Snapshot: Sendable {
-    public var image: CGImage
-    public var timestamp: Int
-    public var info: SnapshotInfo
-    public var ocrText: String?
+    public let image: CGImage
+    public let timestamp: Int
+    public let info: SnapshotInfo
+    public let pHash: String
+    public var ocrText: String? = nil
 
-    public init(image: CGImage, time: Int, info: SnapshotInfo, ocrText: String? = nil) {
+    public init(image: CGImage, timestamp: Int, info: SnapshotInfo, pHash: String) {
         self.image = image
-        self.timestamp = time
+        self.timestamp = timestamp
         self.info = info
-        self.ocrText = ocrText
+        self.pHash = pHash
     }
 }
 
 public struct Video: Sendable {
-    public var timestamp: Int
-    public var frameCount: Int
-    public var url: URL
+    public let timestamp: Int
+    // public let frameCount: Int
+    public let url: URL
 
-    public init(timestamp: Int, frameCount: Int, url: URL) {
+    public init(timestamp: Int, url: URL) {
         self.timestamp = timestamp
-        self.frameCount = frameCount
+        // self.frameCount = frameCount
         self.url = url
     }
 }
@@ -117,11 +118,12 @@ public class Database {
     let snapshotY = SQLite.Expression<Int>("y")
     let snapshotWidth = SQLite.Expression<Int>("width")
     let snapshotHeight = SQLite.Expression<Int>("height")
-    let snapshotOCRText = SQLite.Expression<String?>("ocr_text")
-    let snapshotVideoTimestamp = SQLite.Expression<Int>("snapshotVideoTimestamp")
+    let snapshotPHash = SQLite.Expression<String>("p_hash")
+    let snapshotOCRText = SQLite.Expression<String>("ocr_text")
+    let snapshotVideoTimestamp = SQLite.Expression<Int>("snapshot_video_timestamp")
 
     let videoTimestamp = SQLite.Expression<Int>("timestamp")
-    let videoFrameCount = SQLite.Expression<Int>("frame_count")
+    // let videoFrameCount = SQLite.Expression<Int>("frame_count")
     let videoPath = SQLite.Expression<String>("path")
 
     public init() throws {
@@ -149,6 +151,7 @@ public class Database {
             t.column(snapshotY)
             t.column(snapshotWidth)
             t.column(snapshotHeight)
+            t.column(snapshotPHash)
             t.column(snapshotOCRText)
             t.column(snapshotVideoTimestamp, references: videoTable, videoTimestamp)
         })
@@ -157,12 +160,12 @@ public class Database {
     public func createVideoTable() throws {
         try db.run(videoTable.create(ifNotExists: true) { t in
             t.column(videoTimestamp, primaryKey: true)
-            t.column(videoFrameCount)
+            // t.column(videoFrameCount)
             t.column(videoPath, unique: true)
         })
     }
 
-    public func insertSnapshot(snapshot: Snapshot) throws {
+    public func insertSnapshot(_ snapshot: Snapshot, videoTimestamp: Int) throws {
         try db.run(snapshotTable.insert(
             snapshotTimestamp <- snapshot.timestamp,
             snapshotWindowID <- snapshot.info.windowId,
@@ -174,14 +177,17 @@ public class Database {
             snapshotY <- Int(snapshot.info.rect.minY),
             snapshotWidth <- Int(snapshot.info.rect.width),
             snapshotHeight <- Int(snapshot.info.rect.height),
-            snapshotOCRText <- snapshot.ocrText
+            snapshotPHash <- snapshot.pHash,
+            snapshotOCRText <- snapshot.ocrText ?? "",
+            snapshotVideoTimestamp <- videoTimestamp
         ))
     }
 
-    public func insertVideo(video: Video) throws {
+    public func insertVideo(_ video: Video) throws {
+        print(video)
         try db.run(videoTable.insert(
             videoTimestamp <- video.timestamp,
-            videoFrameCount <- video.frameCount,
+            // videoFrameCount <- video.frameCount,
             videoPath <- video.url.path
         ))
     }
@@ -192,7 +198,7 @@ public class Database {
         for row in try db.prepare(query) {
             videos.append(Video(
                 timestamp: row[videoTimestamp],
-                frameCount: row[videoFrameCount],
+                // frameCount: row[videoFrameCount],
                 url: URL(filePath: row[videoPath])
             ))
         }

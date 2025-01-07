@@ -2,21 +2,21 @@ import Foundation
 import Common
 
 actor Data {
-    private var snapshots: [Snapshot] = [] // last 5-10 min of images
+    private var snapshots: [Int: Snapshot] = [:] // last 5-10 min of images
 
-    func get() -> [Snapshot] {
+    func get() -> [Int: Snapshot] {
         return snapshots
     }
 
-    func get(at index: Int) -> Snapshot {
-        return snapshots[index]
+    func get(key: Int) -> Snapshot? {
+        return snapshots[key]
     }
 
-    func add(snapshot: Snapshot) {
-        snapshots.append(snapshot)
+    func add(timestamp: Int, snapshot: Snapshot) {
+        snapshots[timestamp] = snapshot
     }
 
-    func remove(at index: Int) {
-        snapshots.remove(at: index)
+    func remove(timestamp: Int) {
+        snapshots.removeValue(forKey: timestamp)
     }
 }

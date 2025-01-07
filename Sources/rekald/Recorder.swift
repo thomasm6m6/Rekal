@@ -23,13 +23,11 @@ actor Recorder {
             return
         }
 
-        // XXX not sure this code runs the way I expect
-        // Expect catch clause, but not guard-else clause, to be run if `capture` throws
         do {
             guard let snapshot = try await capture() else {
                 return
             }
-            await data.add(snapshot: snapshot)
+            await data.add(timestamp: snapshot.timestamp, snapshot: snapshot)
             log("Saved image")
         } catch {
             log("Did not save image: \(error)")
@@ -91,12 +89,17 @@ actor Recorder {
         config.height = display.height
 
         let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
-        if let lastSnapshot = lastSnapshot, isSimilar(image1: lastSnapshot.image, image2: image) {
-            log("Images are similar; skipping")
+        guard let hash = pHash(for: image) else {
+            log("Skipping: cannot make hash for image")
+            return nil
+        }
+        let snapshot = Snapshot(image: image, timestamp: timestamp, info: info, pHash: hash)
+
+        if let lastSnapshot = lastSnapshot, isSimilar(snapshot1: snapshot, snapshot2: lastSnapshot) {
+            log("Skipping: images are similar")
             return nil
         }
 
-        let snapshot = Snapshot(image: image, time: timestamp, info: info)
         lastSnapshot = snapshot
         return snapshot
     }
@@ -149,13 +152,6 @@ actor Recorder {
         return true
     }
 
-    private func isSimilar(image1: CGImage, image2: CGImage) -> Bool {
-        if let similarity = pHash(image1: image1, image2: image2) {
-            return similarity > 0.8
-        }
-        return false
-    }
-
     private func getBrowserURL() -> String? {
         let script = "tell application \"Google Chrome\" to get URL of active tab of front window"
         var error: NSDictionary?
@@ -169,112 +165,153 @@ actor Recorder {
         return nil
     }
 
-    private func pHash(image1: CGImage, image2: CGImage) -> Double? {
-        // Size for DCT
-        let size = 32
-        let hashSize = 8
-        
-        // Create contexts for downsampling
-        let colorSpace = CGColorSpaceCreateDeviceGray()
-        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue)
-        
-        guard let context1 = CGContext(data: nil,
-                                    width: size,
-                                    height: size,
-                                    bitsPerComponent: 8,
-                                    bytesPerRow: size,
-                                    space: colorSpace,
-                                    bitmapInfo: bitmapInfo.rawValue),
-            let context2 = CGContext(data: nil,
-                                    width: size,
-                                    height: size,
-                                    bitsPerComponent: 8,
-                                    bytesPerRow: size,
-                                    space: colorSpace,
-                                    bitmapInfo: bitmapInfo.rawValue) else {
+    private func isSimilar(snapshot1: Snapshot, snapshot2: Snapshot) -> Bool {
+        guard let similarity = computeSimilarityPercentage(hash1: snapshot1.pHash, hash2: snapshot2.pHash) else {
+            return false
+        }
+        return similarity >= 80 // maybe 85
+    }
+
+    func computeSimilarityPercentage(hash1: String, hash2: String) -> Double? {
+        guard let hammingDistance = computeSimilarity(hash1: hash1, hash2: hash2) else {
             return nil
         }
 
-        // Draw downsampled grayscale images
-        context1.draw(image1, in: CGRect(x: 0, y: 0, width: size, height: size))
-        context2.draw(image2, in: CGRect(x: 0, y: 0, width: size, height: size))
-        
-        guard let pixels1 = context1.data?.assumingMemoryBound(to: UInt8.self),
-            let pixels2 = context2.data?.assumingMemoryBound(to: UInt8.self) else {
+        let binaryLength = hexToBinary(hexString: hash1).count
+        let similarity = 100.0 * (1.0 - (Double(hammingDistance) / Double(binaryLength)))
+        return similarity
+    }
+
+    func computeSimilarity(hash1: String, hash2: String) -> Int? {
+        guard hash1.count == hash2.count else { return nil }
+
+        let binary1 = hexToBinary(hexString: hash1)
+        let binary2 = hexToBinary(hexString: hash2)
+
+        guard binary1.count == binary2.count else { return nil }
+
+        return zip(binary1, binary2).filter { $0 != $1 }.count
+    }
+
+    func pHash(for cgImage: CGImage) -> String? {
+        let targetSize = CGSize(width: 32, height: 32)
+        guard let resizedImage = resizeCGImage(cgImage: cgImage, targetSize: targetSize),
+            let grayscaleImage = convertToGrayscale(cgImage: resizedImage),
+            let pixelData = getPixelData(from: grayscaleImage, size: targetSize) else {
             return nil
         }
 
-        // Convert to binary using median as threshold
-        var values1 = [UInt8](repeating: 0, count: size * size)
-        var values2 = [UInt8](repeating: 0, count: size * size)
-        
-        // Copy pixels to sort for median
-        for i in 0..<(size * size) {
-            values1[i] = pixels1[i]
-            values2[i] = pixels2[i]
+        let dctData = computeDCT(pixelData: pixelData, size: targetSize)
+        let dctTopLeft = dctData.prefix(64)
+        let averageDCT = dctTopLeft.reduce(0, +) / Float(dctTopLeft.count)
+        let hash = dctTopLeft.map { $0 > averageDCT ? "1" : "0" }.joined()
+        return binaryToHex(binaryString: hash)
+    }
+
+    func resizeCGImage(cgImage: CGImage, targetSize: CGSize) -> CGImage? {
+        let bitmapInfo = CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue)
+        guard let context = CGContext(
+            data: nil,
+            width: Int(targetSize.width),
+            height: Int(targetSize.height),
+            bitsPerComponent: cgImage.bitsPerComponent,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: bitmapInfo.rawValue
+        ) else {
+            return nil
         }
-        
-        values1.sort()
-        values2.sort()
-        
-        let threshold1 = values1[size * size / 2]
-        let threshold2 = values2[size * size / 2]
-        
-        // Convert to binary
-        var binaryPixels1 = [Float](repeating: 0, count: size * size)
-        var binaryPixels2 = [Float](repeating: 0, count: size * size)
-        
-        for i in 0..<(size * size) {
-            binaryPixels1[i] = pixels1[i] > threshold1 ? 255 : 0
-            binaryPixels2[i] = pixels2[i] > threshold2 ? 255 : 0
+        context.interpolationQuality = .low
+        context.draw(cgImage, in: CGRect(origin: .zero, size: targetSize))
+        return context.makeImage()
+    }
+
+    func convertToGrayscale(cgImage: CGImage) -> CGImage? {
+        let width = cgImage.width
+        let height = cgImage.height
+        let context = CGContext(data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: width,
+            space: CGColorSpaceCreateDeviceGray(),
+            bitmapInfo: CGImageAlphaInfo.none.rawValue)
+        context?.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return context?.makeImage()
+    }
+
+    func getPixelData(from cgImage: CGImage, size: CGSize) -> [UInt8]? {
+        let width = Int(size.width)
+        let height = Int(size.height)
+        var pixelData = [UInt8](repeating: 0, count: width * height)
+        guard let context = CGContext(data: &pixelData,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: width,
+                space: CGColorSpaceCreateDeviceGray(),
+                bitmapInfo: CGImageAlphaInfo.none.rawValue) else {
+            return nil
         }
-        
-        // Apply DCT
-        var dct1 = [Float](repeating: 0, count: hashSize * hashSize)
-        var dct2 = [Float](repeating: 0, count: hashSize * hashSize)
-        
-        // Calculate DCT and take top-left 8x8
-        for y in 0..<hashSize {
-            for x in 0..<hashSize {
-                var sum1: Float = 0
-                var sum2: Float = 0
-                
-                for i in 0..<size {
-                    for j in 0..<size {
-                        let cos = cosf(Float.pi * Float(x) * Float(j) / Float(size)) *
-                                cosf(Float.pi * Float(y) * Float(i) / Float(size))
-                        sum1 += binaryPixels1[i * size + j] * cos
-                        sum2 += binaryPixels2[i * size + j] * cos
-                    }
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return pixelData
+    }
+
+    func computeDCT(pixelData: [UInt8], size: CGSize) -> [Float] {
+        let width = Int(size.width)
+        let height = Int(size.height)
+        var floatData = pixelData.map { Float($0) }
+
+        func dct1D(_ data: [Float]) -> [Float] {
+            let N = data.count
+            var result = [Float](repeating: 0, count: N)
+            let factor = Float.pi / Float(N)
+            for k in 0..<N {
+                var sum: Float = 0
+                for n in 0..<N {
+                    sum += data[n] * cos(factor * Float(k) * (Float(n) + 0.5))
                 }
-                
-                dct1[y * hashSize + x] = sum1
-                dct2[y * hashSize + x] = sum2
+                result[k] = sum
+            }
+            return result
+        }
+
+        // Perform 2D DCT
+        for y in 0..<height {
+            let rowStart = y * width
+            let row = Array(floatData[rowStart..<(rowStart + width)])
+            let transformedRow = dct1D(row)
+            floatData.replaceSubrange(rowStart..<(rowStart + width), with: transformedRow)
+        }
+
+        for x in 0..<width {
+            var column = [Float](repeating: 0, count: height)
+            for y in 0..<height {
+                column[y] = floatData[y * width + x]
+            }
+            let transformedColumn = dct1D(column)
+            for y in 0..<height {
+                floatData[y * width + x] = transformedColumn[y]
             }
         }
-        
-        // Calculate average values
-        let avg1 = dct1.reduce(0, +) / Float(hashSize * hashSize)
-        let avg2 = dct2.reduce(0, +) / Float(hashSize * hashSize)
-        
-        // Generate hash bits
-        var hash1: UInt64 = 0
-        var hash2: UInt64 = 0
-        
-        for i in 0..<(hashSize * hashSize) {
-            if dct1[i] > avg1 {
-                hash1 |= 1 << i
-            }
-            if dct2[i] > avg2 {
-                hash2 |= 1 << i
-            }
+
+        return floatData
+    }
+
+    func binaryToHex(binaryString: String) -> String {
+        let chunks = stride(from: 0, to: binaryString.count, by: 4).map {
+            binaryString.index(binaryString.startIndex, offsetBy: $0)..<binaryString.index(binaryString.startIndex, offsetBy: min($0 + 4, binaryString.count))
         }
-        
-        // Calculate Hamming distance
-        let xorHash = hash1 ^ hash2
-        let hammingDistance = xorHash.nonzeroBitCount
-        
-        // Convert to similarity percentage
-        return 1.0 - (Double(hammingDistance) / Double(hashSize * hashSize))
+        return chunks.map { String(format: "%X", Int(binaryString[$0], radix: 2)!) }.joined()
+    }
+
+    func hexToBinary(hexString: String) -> String {
+        let binaryMap = [
+            "0": "0000", "1": "0001", "2": "0010", "3": "0011",
+            "4": "0100", "5": "0101", "6": "0110", "7": "0111",
+            "8": "1000", "9": "1001", "A": "1010", "B": "1011",
+            "C": "1100", "D": "1101", "E": "1110", "F": "1111"
+        ]
+        return hexString.uppercased().compactMap { binaryMap[String($0)] }.joined()
     }
 }
