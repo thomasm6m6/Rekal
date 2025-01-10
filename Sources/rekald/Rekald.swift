@@ -21,7 +21,7 @@ struct Rekald {
             let data = Data()
 
             let recorder = Recorder(data: data, interval: 1.0)
-            let processor = try Processor(data: data, interval: 60)
+            let processor = try Processor(data: data, interval: 300)
 
             Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
                 Task {
@@ -30,7 +30,7 @@ struct Rekald {
                 }
             }
 
-            Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
+            Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { _ in
                 Task {
                     do { try await processor.process() }
                     catch { log("Error processing snapshots: \(error)") }
