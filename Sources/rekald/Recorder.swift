@@ -18,6 +18,8 @@ actor Recorder {
     }
 
     func record() async throws {
+        await print(data.get().count, terminator: "\t")
+
         if isIdle() {
             log("Skipping: idle")
             return

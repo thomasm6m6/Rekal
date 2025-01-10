@@ -21,19 +21,19 @@ struct Rekald {
             let data = Data()
 
             let recorder = Recorder(data: data, interval: 1.0)
-            let processor = try Processor(data: data, interval: 300)
+            let processor = try Processor(data: data, interval: 60)
 
             Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
                 Task {
                     do { try await recorder.record() }
-                    catch { print("Error capturing snapshot: \(error)") }
+                    catch { log("Error capturing snapshot: \(error)") }
                 }
             }
 
-            Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { _ in
+            Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
                 Task {
                     do { try await processor.process() }
-                    catch { print("Error processing snapshots: \(error)") }
+                    catch { log("Error processing snapshots: \(error)") }
                 }
             }
         } catch {

@@ -10,6 +10,9 @@ import Common
 // FIXME only a few images make it into the mp4s
 // FIXME seems to fail silently sometimes. need more logging
 
+// FIXME not putting all images into mp4
+// FIXME not properly removing images from memory
+
 class MediaWriter {
     let input: AVAssetWriterInput
     let writer: AVAssetWriter
@@ -56,7 +59,7 @@ actor Processor {
         }
 
         var snapshots = await data.get()
-        print("Count:", snapshots.count)
+        log("Count: \(snapshots.count)")
         let appSupportDir = Files.default.appSupportDir
         let now = Int(Date().timeIntervalSince1970)
         let maxTimestamp = now / interval * interval
@@ -80,10 +83,11 @@ actor Processor {
         ]
 
         for (timestamp, var snapshot) in snapshots {
-            if timestamp >= maxTimestamp {
-                break
-            }
             let binTimestamp = timestamp / interval * interval
+            if binTimestamp >= maxTimestamp {
+                continue
+            }
+            print("timestamp:", timestamp)
 
             if mediaWriters[binTimestamp] == nil {
                 let outputURL = appSupportDir.appending(path: "\(binTimestamp).mp4")
@@ -129,7 +133,8 @@ actor Processor {
 
             snapshot.ocrText = try await performOCR(image: snapshot.image)
             try database.insertSnapshot(snapshot, videoTimestamp: binTimestamp)
-            snapshots.removeValue(forKey: timestamp)
+            // snapshots.removeValue(forKey: timestamp)
+            await data.remove(for: timestamp)
         }
 
         // TODO async
