@@ -4,6 +4,10 @@ import CoreGraphics
 import Common
 
 // TODO ignore incognito chrome windows by default
+// FIXME:
+//   *** Terminating app due to uncaught exception 'NSInternalInconsistencyException',
+//   reason: 'NSScreen reconfig must only happen on the main thread.'
+// I think it happened when I connected the laptop to power. But definitely not every time I did
 
 enum RecordingError: Error {
     case infoError(String)

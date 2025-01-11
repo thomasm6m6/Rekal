@@ -7,8 +7,6 @@ import CoreImage
 import Common
 
 // TODO proper queue algorithm?
-// FIXME only a few images make it into the mp4s
-// FIXME seems to fail silently sometimes. need more logging
 
 class MediaWriter {
     let input: AVAssetWriterInput
@@ -79,9 +77,10 @@ actor Processor {
         ]
 
         for (timestamp, var snapshot) in snapshots {
+            print("timestamp:", timestamp)
             let binTimestamp = timestamp / interval * interval
             if binTimestamp >= maxTimestamp {
-                continue
+                break
             }
 
             if mediaWriters[binTimestamp] == nil {
@@ -105,7 +104,6 @@ actor Processor {
                 throw ProcessingError.error("mediaWriters[\(binTimestamp)] does not exist")
             }
 
-            // TODO might be able to use timestamp or something else instead of index
             mediaWriter.index += 1
             let time = CMTime(value: CMTimeValue(mediaWriter.index), timescale: 1)
 

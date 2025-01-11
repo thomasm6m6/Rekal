@@ -20,10 +20,11 @@ import Common
 // TODO ramdisk/api for decoding?
 // TODO menu bar icon to pause/resume recording
 // TODO button to force processing regardless of battery state
+// TODO holding arrow buttons scrubs in that direction
 
 @MainActor
 class VideoFrameManager: ObservableObject {
-    @Published var images: [NSImage] = []
+    @Published var images: [CGImage] = []
     @Published var videos: [Video] = []
     @Published var videoIndex = 0
     @Published var isProcessing = false
@@ -40,37 +41,33 @@ class VideoFrameManager: ObservableObject {
         do {
             let db = try Database()
             let tempDir = try Files.tempDir()
-            videos = try db.videosBetween(minTime: minTimestamp, maxTime: maxTimestamp)        
-            print(videos)
+            videos = try db.videosBetween(minTime: minTimestamp, maxTime: maxTimestamp)
 
             Task {
                 isProcessing = true
                 for video in videos {
-                    print(video)
-
-                    let process = Process()
-                    process.executableURL = URL(filePath: "/opt/homebrew/bin/ffmpeg")
-                    process.arguments = [
-                        "-nostdin",
-                        "-v", "error",
-                        "-i", video.url.path,
-                        "\(tempDir.path)/\(video.timestamp)-%04d.png"
-                    ]
-                    print(process.arguments ?? "")
+                    let asset = AVURLAsset(url: video.url)
+                    let generator = AVAssetImageGenerator(asset: asset)
+                    generator.appliesPreferredTrackTransform = true
+                    generator.requestedTimeToleranceBefore = .zero
+                    generator.requestedTimeToleranceAfter = .zero
 
                     do {
-                        try process.run()
-                        process.waitUntilExit()
+                        let duration = try await asset.load(.duration)
+                        let times = stride(from: 1.0, to: duration.seconds, by: 1.0).map {
+                            CMTime(seconds: $0, preferredTimescale: duration.timescale)
+                        }
 
-                        videoIndex += 1
-
-                        // TODO don't get the image URLs this way--we have frameCount so can calculate manually
-                        let imageURLs = try FileManager.default.contentsOfDirectory(at: tempDir, includingPropertiesForKeys: nil)
-                            .filter { $0.pathExtension.lowercased() == "png" }
-                            .sorted { $0.path < $1.path }
-                        images = imageURLs.compactMap { NSImage(contentsOf: $0) }
+                        for await result in generator.images(for: times) {
+                            switch result {
+                            case .success(requestedTime: let requested, image: let image, actualTime: let actual):
+                                self.images.append(image)
+                            case .failure(requestedTime: let requested, error: let error):
+                                print("Failed to process image at \(requested.seconds) seconds for video '\(video.url.path)': '\(error)'")
+                            }
+                        }
                     } catch {
-                        print(error)
+                        print("Error loading video: \(error)")
                     }
                 }
                 isProcessing = false
@@ -115,7 +112,7 @@ struct MainView: View {
 }
 
 struct ImageView: View {
-    let images: [NSImage]
+    let images: [CGImage]
     let videos: [Video]
     let videoIndex: Int
     @State private var currentIndex = 0
@@ -126,7 +123,7 @@ struct ImageView: View {
     var body: some View {
         VStack {
             if !images.isEmpty {
-                Image(nsImage: images[currentIndex])
+                Image(images[currentIndex], scale: 1.0, label: Text("Screenshot"))
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

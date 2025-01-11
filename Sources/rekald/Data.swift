@@ -1,10 +1,11 @@
 import Foundation
+import OrderedCollections
 import Common
 
 actor Data {
-    private var snapshots: [Int: Snapshot] = [:] // last 5-10 min of images
+    private var snapshots: OrderedDictionary<Int, Snapshot> = [:] // last 5-10 min of images
 
-    func get() -> [Int: Snapshot] {
+    func get() -> OrderedDictionary<Int, Snapshot> {
         return snapshots
     }
 
@@ -17,6 +18,7 @@ actor Data {
     }
 
     func remove(for timestamp: Int) {
-        snapshots.removeValue(forKey: timestamp)
+        snapshots[timestamp] = nil
+        // snapshots.removeValue(forKey: timestamp)
     }
 }
