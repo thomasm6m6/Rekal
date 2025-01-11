@@ -15,20 +15,20 @@ let package = Package(
             dependencies: [
                 .product(name: "SQLite", package: "SQLite.swift")
             ]
-            // path: "Sources/Common"
         ),
         .executableTarget(
-            name: "rekald",
+            name: "Rekald",
             dependencies: [
                 "Common",
                 .product(name: "Collections", package: "swift-collections")
             ]
-            // path: "Sources/rekald"
         ),
         .executableTarget(
-            name: "rekal",
+            name: "RekalMenuBar"
+        ),
+        .executableTarget(
+            name: "Rekal",
             dependencies: ["Common"]
-            // path: "Sources/rekal"
         )
     ]
 )
