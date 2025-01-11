@@ -184,7 +184,6 @@ public class Database {
     }
 
     public func insertVideo(_ video: Video) throws {
-        print(video)
         try db.run(videoTable.insert(
             videoTimestamp <- video.timestamp,
             // videoFrameCount <- video.frameCount,

@@ -3,6 +3,8 @@ import CoreGraphics
 @preconcurrency import ScreenCaptureKit // TODO probably shouldn't use preconcurrency
 import Common
 
+// TODO ignore incognito chrome windows by default
+
 enum RecordingError: Error {
     case infoError(String)
 }

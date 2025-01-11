@@ -15,7 +15,7 @@ class MediaWriter {
     let writer: AVAssetWriter
     let adaptor: AVAssetWriterInputPixelBufferAdaptor
     let url: URL
-    var index: Int = 0
+    var index = 0
 
     init(input: AVAssetWriterInput, writer: AVAssetWriter, adaptor: AVAssetWriterInputPixelBufferAdaptor, url: URL) {
         self.input = input
@@ -48,25 +48,25 @@ actor Processor {
     }
 
     private func saveRecords() async throws {
-        log("Processing records...")
-
-        if !isOnPower() {
-            log("Device is using battery power; delaying processing")
-            return
-        }
-
-        var snapshots = await data.get()
+        let snapshots = await data.get()
         let appSupportDir = Files.default.appSupportDir
         let now = Int(Date().timeIntervalSince1970)
         let maxTimestamp = now / interval * interval
+
+        log("Processing \(snapshots.count) snapshots...")
+
+        guard isOnPower() else {
+            log("Device is using battery power; delaying processing")
+            return
+        }
 
         guard let firstSnapshot = snapshots.values.first else {
             log("No snapshots to encode")
             return
         }
 
-        let width = firstSnapshot.image.width
         let height = firstSnapshot.image.height
+        let width = firstSnapshot.image.width
         var mediaWriters: [Int: MediaWriter] = [:]
         let writerSettings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.hevc,
@@ -135,7 +135,7 @@ actor Processor {
         for mediaWriter in mediaWriters.values {
             mediaWriter.input.markAsFinished()
             await mediaWriter.writer.finishWriting()
-            log("Wrote \(mediaWriter.url.path)")
+            log("Wrote \(mediaWriter.index) frames to \(mediaWriter.url.path)")
         }
     }
 
