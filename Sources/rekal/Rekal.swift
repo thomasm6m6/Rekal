@@ -26,14 +26,14 @@ import Common
 class VideoFrameManager: ObservableObject {
     @Published var images: [CGImage] = []
     @Published var videos: [Video] = []
-    @Published var videoIndex = 0
+    @Published var index = 0
     @Published var isProcessing = false
 
     // TODO consider whether SQL JOIN function would be useful
     func extractFrames(date: Date) {
         images = []
         videos = []
-        videoIndex = 0
+        index = 0
 
         let minTimestamp = Int(Calendar.current.startOfDay(for: date).timeIntervalSince1970)
         let maxTimestamp = minTimestamp + 86400
@@ -60,7 +60,7 @@ class VideoFrameManager: ObservableObject {
 
                         for await result in generator.images(for: times) {
                             switch result {
-                            case .success(requestedTime: let requested, image: let image, actualTime: let actual):
+                            case .success(requestedTime: _, image: let image, actualTime: _):
                                 self.images.append(image)
                             case .failure(requestedTime: let requested, error: let error):
                                 print("Failed to process image at \(requested.seconds) seconds for video '\(video.url.path)': '\(error)'")
@@ -75,6 +75,18 @@ class VideoFrameManager: ObservableObject {
             }
         } catch {
             print(error)
+        }
+    }
+
+    func incrementIndex() {
+        if index < images.count - 1 {
+            index += 1
+        }
+    }
+
+    func decrementIndex() {
+        if index > 0 {
+            index -= 1
         }
     }
 }
@@ -106,15 +118,13 @@ struct MainView: View {
                 Spacer()
             }
         } detail: {
-            ImageView(images: frameManager.images, videos: frameManager.videos, videoIndex: frameManager.videoIndex)
+            ImageView(frameManager: frameManager)
         }
     }
 }
 
 struct ImageView: View {
-    let images: [CGImage]
-    let videos: [Video]
-    let videoIndex: Int
+    let frameManager: VideoFrameManager
     @State private var currentIndex = 0
     @State private var isPlaying = false
     
@@ -122,8 +132,8 @@ struct ImageView: View {
 
     var body: some View {
         VStack {
-            if !images.isEmpty {
-                Image(images[currentIndex], scale: 1.0, label: Text("Screenshot"))
+            if !frameManager.images.isEmpty {
+                Image(frameManager.images[frameManager.index], scale: 1.0, label: Text("Screenshot"))
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -138,21 +148,17 @@ struct ImageView: View {
                 Button(action: previousImage) {
                     Image(systemName: "arrow.left")
                 }
-                .disabled(isPlaying || currentIndex <= 0)
+                .disabled(isPlaying || frameManager.index <= 0)
 
                 Spacer()
-
-                Text("\(videoIndex)/\(videos.count) videos")
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundColor(.secondary)
 
                 Button(action: { isPlaying.toggle() }) {
                     Image(systemName: isPlaying ? "pause.circle" : "play.circle")
                         .imageScale(.large)
                 }
-                .disabled(images.isEmpty || currentIndex >= images.count - 1)
+                .disabled(frameManager.images.isEmpty || frameManager.index >= frameManager.images.count - 1)
 
-                Text("\(currentIndex)/\(images.count) frames")
+                Text("\(frameManager.images.count == 0 ? 0 : frameManager.index+1)/\(frameManager.images.count) frames")
                     .font(.system(.body, design: .monospaced))
                     .foregroundColor(.secondary)
 
@@ -161,7 +167,7 @@ struct ImageView: View {
                 Button(action: nextImage) {
                     Image(systemName: "arrow.right")
                 }
-                .disabled(isPlaying || currentIndex >= images.count - 1)
+                .disabled(isPlaying || frameManager.index >= frameManager.images.count - 1)
             }
             .padding()
         }
@@ -173,18 +179,13 @@ struct ImageView: View {
     }
 
     private func previousImage() {
-        if currentIndex > 0 {
-            currentIndex -= 1
-        }
+        frameManager.decrementIndex()
     }
 
     private func nextImage() {
-        if currentIndex < images.count - 1 {
-            currentIndex += 1
-        } else {
-            if isPlaying {
-                isPlaying = false
-            }
+        frameManager.incrementIndex()
+        if frameManager.index == frameManager.images.count - 1 && isPlaying {
+            isPlaying = false
         }
     }
 }
