@@ -1,23 +1,19 @@
 import SwiftUI
 import Foundation
 import AVFoundation
-import UniformTypeIdentifiers // XXX necessary?
 import Common
 
 // TODO don't block the UI while loading images
 // TODO load full images
-// TODO LiveText
 // FIXME Viewer is pretty memory-heavy, e.g. 7.24gb for 4774 files (dec 27)
 //       Memory usage continues increasing after it finishes loading images
 //       Or maybe it just seems that way because of lazy loading?
 // TODO arrow keys and media keys
 // TODO export image
 // TODO zoom
-// FIXME currentIndex is not updated when loadImages is called
 // TODO slider for granularity using similarity percentage via hashing
 
 // TODO XPC/EventKit
-// TODO ramdisk/api for decoding?
 // TODO menu bar icon to pause/resume recording
 // TODO button to force processing regardless of battery state
 // TODO holding arrow buttons scrubs in that direction
