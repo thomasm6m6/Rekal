@@ -17,9 +17,7 @@ import ImageIO
 // TODO slider for granularity using similarity percentage via hashing
 
 // TODO XPC/EventKit
-// TODO menu bar icon to pause/resume recording
-// TODO button to force processing regardless of battery state
-// TODO holding arrow buttons scrubs in that direction
+// TODO holding arrow keys scrubs in that direction
 
 
 // TODO write unprocessed images to disk on quit
@@ -109,25 +107,6 @@ class VideoFrameManager: ObservableObject {
             index -= 1
         }
     }
-
-    // func performOCR() {
-    //     let request = RecognizeTextRequest()
-
-    //     Task {
-    //         let result = try await request.perform(on: URL(filePath: "/tmp/a.png"), orientation: nil)
-
-    //         for observation in result {
-    //             let text = observation.topCandidates(1)[0]
-    //             print(text.string)
-    //             // let bbox = [
-    //             //     (round(observation.topLeft.x*10)/10, round(observation.topLeft.y*10)/10),
-    //             //     (round(observation.topRight.x*10)/10, round(observation.topRight.y*10)/10),
-    //             //     (round(observation.bottomRight.x*10)/10, round(observation.bottomRight.y*10)/10),
-    //             //     (round(observation.bottomLeft.x*10)/10, round(observation.bottomLeft.y*10)/10)]
-    //             // print(bbox, "\t", text.string)
-    //         }
-    //     }
-    // }
 }
 
 struct MainView: View {
@@ -187,25 +166,9 @@ class OCR {
 
         for observation in results {
             observations.append(observation)
-            print(observation.topLeft.x, observation.topLeft.y, observation.topCandidates(1)[0].string)
         }
     }
 }
-
-// struct Box: Shape {
-//     private let normalizedRect: NormalizedRect
-
-//     init(observation: any BoundingBoxProviding) {
-//         normalizedRect = observation.boundingBox
-//     }
-
-//     func path(in rect: CGRect, content: String) -> Text {
-//         // let rect = normalizedRect.toImageCoordinates(rect.size, origin: .upperLeft)
-//         return Text(content)
-//             .offset(x: rect.minX, y: rect.minY)
-//             .frame(width: rect.width, height: rect.height)
-//     }
-// }
 
 func loadCGImage() -> CGImage? {
     let url = URL(filePath: "/tmp/a.png")
@@ -224,47 +187,26 @@ func loadCGImage() -> CGImage? {
 }
 
 struct OCRTextView: View {
+    @State private var hoverLocation: CGPoint = .zero
+    @State private var isSelected = false
+    @State private var isHovering = false
     @State private var text: String
-    @State private var x: CGFloat
-    @State private var y: CGFloat
-    @State private var width: CGFloat
-    @State private var height: CGFloat
+    @State private var boundingBox: NormalizedRect
 
-    init(_ text: String, x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat) {
+    init(_ text: String, boundingBox: NormalizedRect) {
         self.text = text
-        self.x = x
-        self.y = y
-        self.width = width
-        self.height = height
+        // self.normalizedRect = normalizedRect
+        self.boundingBox = boundingBox
     }
 
     var body: some View {
-        Text(text)
-            .background(.red)
-            .textSelection(.enabled)
-            .lineLimit(1)
-            .minimumScaleFactor(0.01)
-            .frame(width: width, height: height)
-            .position(x: x, y: y)
-    }
-}
-
-struct ObservationsOverlay: View {
-    let observations: [RecognizedTextObservation]
-    let geometrySize: CGSize
-
-    init(observations: [RecognizedTextObservation], geometrySize: CGSize) {
-        self.observations = observations
-        self.geometrySize = geometrySize
-        print(geometrySize)
-    }
-
-    var body: some View {
-        ForEach(observations, id: \.uuid) { observation in
-            let text = observation.topCandidates(1)[0].string
-            let rect = observation.boundingBox.toImageCoordinates(geometrySize, origin: .upperLeft)
-
-            OCRTextView(text, x: rect.midX, y: rect.midY, width: rect.width, height: rect.height)
+        GeometryReader { geometry in
+            let rect = boundingBox.toImageCoordinates(geometry.size, origin: .upperLeft)
+            Rectangle()
+                .fill(isHovering ? .green : .blue)
+                .contentShape(Rectangle())
+                .frame(width: rect.width, height: rect.height)
+                .offset(x: rect.minX, y: rect.minY)
         }
     }
 }
@@ -275,82 +217,66 @@ struct ImageView: View {
 
     @State private var currentIndex = 0
     @State private var isPlaying = false
-    
-    // let timer = Timer.publish(every: 0.025, on: .main, in: .common).autoconnect()
+
+    let timer = Timer.publish(every: 0.025, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        if let image = loadCGImage() {
-            Image(image, scale: 1.0, label: Text("a"))
-                .resizable()
-                .scaledToFit()
-                .overlay(
-                    GeometryReader { geometry in
-                        ObservationsOverlay(
-                            observations: imageOCR.observations,
-                            geometrySize: geometry.size
+        VStack {
+            if !frameManager.images.isEmpty {
+                Image(frameManager.images[frameManager.index], scale: 1.0, label: Text("Screenshot"))
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                Spacer()
+
+                if let image = loadCGImage() {
+                    Image(image, scale: 1.0, label: Text("a"))
+                        .resizable()
+                        .scaledToFit()
+                        .overlay(
+                            ForEach(imageOCR.observations, id: \.uuid) { observation in
+                                let text = observation.topCandidates(1)[0].string
+                                OCRTextView(text, boundingBox: observation.boundingBox)
+                            }
                         )
-                    }
-                )
-            // GeometryReader { geometry in
-            //     Image(image, scale: 1.0, label: Text("A"))
-            //         .resizable()
-            //         // .scaledToFit()
-            //         .aspectRatio(contentMode: .fit)
-            //         .overlay {
-            //             ObservationsOverlay(
-            //                 observations: imageOCR.observations,
-            //                 geometrySize: geometry.size
-            //             )
-            //         }
-            //         // .padding()
-            // }
+                }
+            }
+
+            Spacer()
+
+            HStack {
+                Button(action: previousImage) {
+                    Image(systemName: "arrow.left")
+                }
+                .disabled(isPlaying || frameManager.index <= 0)
+
+                Spacer()
+
+                Button(action: { isPlaying.toggle() }) {
+                    Image(systemName: isPlaying ? "pause.circle" : "play.circle")
+                        .imageScale(.large)
+                }
+                .disabled(frameManager.images.isEmpty || frameManager.index >= frameManager.images.count - 1)
+
+                Text("\(frameManager.images.count == 0 ? 0 : frameManager.index+1)/\(frameManager.images.count) frames")
+                    .font(.system(.body, design: .monospaced))
+                    .foregroundColor(.secondary)
+
+                Spacer()
+
+                Button(action: nextImage) {
+                    Image(systemName: "arrow.right")
+                }
+                .disabled(isPlaying || frameManager.index >= frameManager.images.count - 1)
+            }
+            .padding()
         }
-
-        // VStack {
-        //     if !frameManager.images.isEmpty {
-        //         Image(frameManager.images[frameManager.index], scale: 1.0, label: Text("Screenshot"))
-        //             .resizable()
-        //             .aspectRatio(contentMode: .fit)
-        //             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        //     } else {
-        //         Spacer()
-        //         Text("No images available")
-        //     }
-
-        //     Spacer()
-
-        //     HStack {
-        //         Button(action: previousImage) {
-        //             Image(systemName: "arrow.left")
-        //         }
-        //         .disabled(isPlaying || frameManager.index <= 0)
-
-        //         Spacer()
-
-        //         Button(action: { isPlaying.toggle() }) {
-        //             Image(systemName: isPlaying ? "pause.circle" : "play.circle")
-        //                 .imageScale(.large)
-        //         }
-        //         .disabled(frameManager.images.isEmpty || frameManager.index >= frameManager.images.count - 1)
-
-        //         Text("\(frameManager.images.count == 0 ? 0 : frameManager.index+1)/\(frameManager.images.count) frames")
-        //             .font(.system(.body, design: .monospaced))
-        //             .foregroundColor(.secondary)
-
-        //         Spacer()
-
-        //         Button(action: nextImage) {
-        //             Image(systemName: "arrow.right")
-        //         }
-        //         .disabled(isPlaying || frameManager.index >= frameManager.images.count - 1)
-        //     }
-        //     .padding()
-        // }
-        // .onReceive(timer) { _ in
-        //     if isPlaying {
-        //         nextImage()
-        //     }
-        // }
+        .onReceive(timer) { _ in
+            if isPlaying {
+                nextImage()
+            }
+        }
     }
 
     private func previousImage() {
