@@ -175,14 +175,9 @@ class OCR {
         let results = try await request.perform(on: image)
 
         for observation in results {
-            let text = observation.topCandidates(1)[0].string
-            let rect = observation.boundingBox.cgRect
             data.append(OCRResult(
-                text: text,
-                x: Float(rect.minX),
-                y: Float(rect.minY),
-                width: Float(rect.width),
-                height: Float(rect.height),
+                text: observation.topCandidates(1)[0].string,
+                normalizedRect: observation.boundingBox.cgRect,
                 uuid: observation.uuid
             ))
         }
@@ -195,7 +190,6 @@ class OCR {
         }
 
         try decode()
-        print(data)
     }
 
     func decode() throws {
@@ -294,29 +288,17 @@ struct OCRTextView: View {
     @State private var isSelected = false
     @State private var isHovering = false
     @State private var text: String
-    // @State private var boundingBox: NormalizedRect
-    @State private var x: Float
-    @State private var y: Float
-    @State private var width: Float
-    @State private var height: Float
+    @State private var normalizedRect: CGRect
 
-    init(_ text: String, x: Float, y: Float, width: Float, height: Float) {
+    init(_ text: String, normalizedRect: CGRect) {
         self.text = text
-        self.x = x
-        self.y = y
-        self.width = width
-        self.height = height
+        self.normalizedRect = normalizedRect
     }
 
     // TODO finish
     var body: some View {
         GeometryReader { geometry in
-            let boundingBox = NormalizedRect(
-                x: CGFloat(x),
-                y: CGFloat(y),
-                width: CGFloat(width),
-                height: CGFloat(height)
-            )
+            let boundingBox = NormalizedRect(normalizedRect: normalizedRect)
             let rect = boundingBox.toImageCoordinates(geometry.size, origin: .upperLeft)
             Rectangle()
                 .fill(isHovering ? .green : .blue)
@@ -363,11 +345,7 @@ struct ImageView: View {
                         .scaledToFit()
                         .overlay(
                             ForEach(imageOCR.data, id: \.uuid) { result in
-                                OCRTextView(result.text,
-                                    x: result.x,
-                                    y: result.y,
-                                    width: result.width,
-                                    height: result.height)
+                                OCRTextView(result.text, normalizedRect: result.normalizedRect)
                             }
                         )
                 } else {
