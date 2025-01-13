@@ -1,10 +1,11 @@
-import Foundation
-import CoreGraphics
-@preconcurrency import VisionKit // TODO probably shouldn't use preconcurrency
 import AVFoundation
-import IOKit.ps
-import CoreImage
 import Common
+import CoreGraphics
+import CoreImage
+import Foundation
+import IOKit.ps
+import Vision
+@preconcurrency import VisionKit  // TODO probably shouldn't use preconcurrency
 
 // TODO proper queue algorithm?
 // TODO layout-aware OCR
@@ -28,7 +29,6 @@ import Common
 // 2025-01-13 07:32:48 +0000       Skipping: idle
 // timestamp: 1736748548
 
-
 class MediaWriter {
     let input: AVAssetWriterInput
     let writer: AVAssetWriter
@@ -36,7 +36,10 @@ class MediaWriter {
     let url: URL
     var index = 0
 
-    init(input: AVAssetWriterInput, writer: AVAssetWriter, adaptor: AVAssetWriterInputPixelBufferAdaptor, url: URL) {
+    init(
+        input: AVAssetWriterInput, writer: AVAssetWriter,
+        adaptor: AVAssetWriterInputPixelBufferAdaptor, url: URL
+    ) {
         self.input = input
         self.writer = writer
         self.adaptor = adaptor
@@ -58,7 +61,8 @@ actor Processor {
         self.data = data
         self.interval = interval
 
-        try FileManager.default.createDirectory(at: Files.default.appSupportDir, withIntermediateDirectories: true, attributes: nil)
+        try FileManager.default.createDirectory(
+            at: Files.default.appSupportDir, withIntermediateDirectories: true, attributes: nil)
         self.database = try Database()
     }
 
@@ -79,26 +83,32 @@ actor Processor {
             return
         }
 
-        guard let firstSnapshot = snapshots.values.first else {
+        guard let firstSnapshot = snapshots.values.first,
+            let firstImage = firstSnapshot.image
+        else {
             log("No snapshots to encode")
             return
         }
 
-        let height = firstSnapshot.image.height
-        let width = firstSnapshot.image.width
+        let height = firstImage.height
+        let width = firstImage.width
         var mediaWriters: [Int: MediaWriter] = [:]
         let writerSettings: [String: Any] = [
             AVVideoCodecKey: AVVideoCodecType.hevc,
             AVVideoWidthKey: width,
-            AVVideoHeightKey: height
+            AVVideoHeightKey: height,
         ]
         let bufferOptions: [String: Any] = [
             kCVPixelBufferCGImageCompatibilityKey as String: true,
-            kCVPixelBufferCGBitmapContextCompatibilityKey as String: true
+            kCVPixelBufferCGBitmapContextCompatibilityKey as String: true,
         ]
 
         for (timestamp, var snapshot) in snapshots {
-            print("timestamp:", timestamp)
+            guard let image = snapshot.image else {
+                throw ProcessingError.error("Cannot get image")
+            }
+            log("Processing timestamp: \(timestamp)")
+
             let binTimestamp = timestamp / interval * interval
             if binTimestamp >= maxTimestamp {
                 break
@@ -108,14 +118,16 @@ actor Processor {
                 let outputURL = appSupportDir.appending(path: "\(binTimestamp).mp4")
                 let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
                 let input = AVAssetWriterInput(mediaType: .video, outputSettings: writerSettings)
-                let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input,
+                let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+                    assetWriterInput: input,
                     sourcePixelBufferAttributes: nil)
 
                 writer.add(input)
                 writer.startWriting()
                 writer.startSession(atSourceTime: .zero)
 
-                mediaWriters[binTimestamp] = MediaWriter(input: input, writer: writer, adaptor: adaptor, url: outputURL)
+                mediaWriters[binTimestamp] = MediaWriter(
+                    input: input, writer: writer, adaptor: adaptor, url: outputURL)
 
                 let video = Video(timestamp: binTimestamp, url: outputURL)
                 try database.insertVideo(video)
@@ -133,19 +145,20 @@ actor Processor {
             }
 
             var pixelBuffer: CVPixelBuffer?
-            let status = CVPixelBufferCreate(kCFAllocatorDefault, width, height,
+            let status = CVPixelBufferCreate(
+                kCFAllocatorDefault, width, height,
                 kCVPixelFormatType_32ARGB, bufferOptions as CFDictionary, &pixelBuffer)
             guard status == kCVReturnSuccess, let buffer = pixelBuffer else {
-                throw ProcessingError.error("Failed to create pixel buffer")
+                throw ProcessingError.error("Cannot create pixel buffer")
             }
 
             let context = CIContext()
-            let ciImage = CIImage(cgImage: snapshot.image)
+            let ciImage = CIImage(cgImage: image)
             context.render(ciImage, to: buffer)
 
             mediaWriter.adaptor.append(buffer, withPresentationTime: time)
 
-            snapshot.ocrText = try await performOCR(image: snapshot.image)
+            snapshot.ocrData = try await performOCR(on: image)
             try database.insertSnapshot(snapshot, videoTimestamp: binTimestamp)
             await data.remove(for: timestamp)
         }
@@ -158,19 +171,38 @@ actor Processor {
         }
     }
 
-    private func performOCR(image: CGImage) async throws -> String? {
-        let analyzer = ImageAnalyzer()
-        let config = ImageAnalyzer.Configuration([.text])
+    private func performOCR(on image: CGImage) async throws -> String {
+        var request = RecognizeTextRequest()
+        request.automaticallyDetectsLanguage = true
+        request.usesLanguageCorrection = true
+        request.recognitionLanguages = [Locale.Language(identifier: "en-US")]
+        request.recognitionLevel = .accurate
 
-        let analysis = try await analyzer.analyze(image, orientation: .right, configuration: config)
-        return analysis.transcript
+        let results = try await request.perform(on: image)
+        var data: [OCRResult] = []
+
+        for observation in results {
+            data.append(
+                OCRResult(
+                    text: observation.topCandidates(1)[0].string,
+                    normalizedRect: observation.boundingBox.cgRect,
+                    uuid: observation.uuid
+                ))
+        }
+
+        let encoder = JSONEncoder()
+        let jsonData = try encoder.encode(data)
+        guard let jsonString = String(data: jsonData, encoding: .utf8) else {
+            throw ProcessingError.error("Cannot encode OCR data as JSON")
+        }
+        return jsonString
     }
 
     private func isOnPower() -> Bool {
         let snapshot = IOPSCopyPowerSourcesInfo().takeRetainedValue()
         let type = IOPSGetProvidingPowerSourceType(snapshot)
         guard let type = type else {
-            return false // TODO maybe throw
+            return false  // TODO maybe throw
         }
         let type2 = type.takeRetainedValue() as String
         return type2 == kIOPSACPowerValue

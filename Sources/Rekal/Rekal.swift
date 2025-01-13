@@ -1,10 +1,9 @@
-import SwiftUI
-import Foundation
 import AVFoundation
 import Common
-
-import Vision
+import Foundation
 import ImageIO
+import SwiftUI
+import Vision
 
 // TODO don't block the UI while loading images
 // FIXME Viewer is pretty memory-heavy, e.g. 7.24gb for 4774 files (dec 27)
@@ -15,6 +14,7 @@ import ImageIO
 // TODO zoom
 // TODO slider for granularity using similarity percentage via hashing
 // TODO serialize OCR data
+// TODO don't render OCR overlay imediately
 
 // TODO XPC/EventKit
 // TODO holding arrow keys scrubs in that direction
@@ -24,7 +24,6 @@ import ImageIO
 
 // FIXME changing current image via stepper does not cancel OCR
 // FIXME OCR coordinates are messed up in upper left corner of image
-
 
 // TODO write unprocessed images to disk on quit
 // let signalQueue = DispatchQueue(label: "signal-handler")
@@ -44,7 +43,6 @@ import ImageIO
 // signal(SIGTERM, SIG_IGN) // Ignore default handling for SIGTERM
 // sigintSource.resume()
 // sigtermSource.resume()
-
 
 @MainActor
 class VideoFrameManager: ObservableObject {
@@ -72,7 +70,10 @@ class VideoFrameManager: ObservableObject {
                 // TODO skip as much of this process as possible according to filters
                 for video in videos {
                     var rawImages: [CGImage] = []
-                    var videoSnapshots = try db.snapshotsInVideo(videoTimestamp: video.timestamp)
+                    var snapshotsInVideo = try db.snapshotsInVideo(videoTimestamp: video.timestamp)
+                    for snapshotInVideo in snapshotsInVideo {
+                        print(snapshotInVideo)
+                    }
 
                     let asset = AVURLAsset(url: video.url)
                     let generator = AVAssetImageGenerator(asset: asset)
@@ -88,43 +89,49 @@ class VideoFrameManager: ObservableObject {
 
                         for await result in generator.images(for: times) {
                             switch result {
-                            case .success(requestedTime: _, image: let image, actualTime: _):
+                            case .success(requestedTime: _, let image, actualTime: _):
                                 rawImages.append(image)
-                            case .failure(requestedTime: let requested, error: let error):
-                                print("Failed to process image at \(requested.seconds) seconds for video '\(video.url.path)': '\(error)'")
+                            case .failure(requestedTime: let requested, let error):
+                                print(
+                                    "Failed to process image at \(requested.seconds) seconds for video '\(video.url.path)': '\(error)'"
+                                )
                             }
                         }
                     } catch {
                         print("Error loading video: \(error)")
                     }
 
-                    guard videoSnapshots.count == rawImages.count else {
+                    guard snapshotsInVideo.count == rawImages.count else {
                         print("videoSnapshots.count != rawImages.count for \(video.url.path)")
                         continue
                     }
 
                     // TODO proper fuzzy search
-                    for (index, _) in rawImages.enumerated() {
-                        videoSnapshots[index].image = rawImages[index]
+                    for (index, image) in rawImages.enumerated() {
+                        snapshotsInVideo[index].image = image
                         let trimmedSearch = search.lowercased().trimmingCharacters(in: .whitespaces)
                         if trimmedSearch == "" {
-                            snapshots.append(videoSnapshots[index])
+                            snapshots.append(snapshotsInVideo[index])
                             continue
                         }
 
-                        let info = videoSnapshots[index].info
+                        let info = snapshotsInVideo[index].info
                         if trimmedSearch == info.appId.lowercased() {
-                            snapshots.append(videoSnapshots[index])
+                            snapshots.append(snapshotsInVideo[index])
                             continue
                         }
 
-                        if let name = info.appId.split(separator: ".").last, trimmedSearch == name.lowercased() {
-                            snapshots.append(videoSnapshots[index])
+                        if let name = info.appId.split(separator: ".").last,
+                            trimmedSearch == name.lowercased()
+                        {
+                            snapshots.append(snapshotsInVideo[index])
                             continue
                         }
 
-                        if trimmedSearch == info.appName.lowercased().trimmingCharacters(in: .whitespaces) {
-                            snapshots.append(videoSnapshots[index])
+                        if trimmedSearch
+                            == info.appName.lowercased().trimmingCharacters(in: .whitespaces)
+                        {
+                            snapshots.append(snapshotsInVideo[index])
                             continue
                         }
                     }
@@ -150,58 +157,6 @@ class VideoFrameManager: ObservableObject {
     }
 }
 
-enum OCRError: Error {
-    case error(String)
-}
-
-@Observable
-class OCR {
-    var data: [OCRResult] = []
-    var json: String? = nil
-    var request = RecognizeTextRequest()
-
-    @MainActor
-    func performOCR(on snapshot: Snapshot) async throws {
-        guard let image = snapshot.image else {
-            throw OCRError.error("No image")
-        }
-
-        data.removeAll()
-
-        request.usesLanguageCorrection = false
-        request.recognitionLanguages = [Locale.Language(identifier: "en-US")]
-        request.recognitionLevel = .accurate
-
-        let results = try await request.perform(on: image)
-
-        for observation in results {
-            data.append(OCRResult(
-                text: observation.topCandidates(1)[0].string,
-                normalizedRect: observation.boundingBox.cgRect,
-                uuid: observation.uuid
-            ))
-        }
-
-        let encoder = JSONEncoder()
-        let jsonData = try encoder.encode(data)
-        if let jsonString = String(data: jsonData, encoding: .utf8) {
-            json = jsonString
-            // print("Encoded JSON string:", jsonString)
-        }
-
-        try decode()
-    }
-
-    func decode() throws {
-        guard let json = json, let jsonData = json.data(using: .utf8) else {
-            throw OCRError.error("Cannot decode json")
-        }
-        let decoder = JSONDecoder()
-        let results = try decoder.decode([OCRResult].self, from: jsonData)
-        data = results
-    }
-}
-
 struct MainView: View {
     @StateObject private var frameManager = VideoFrameManager()
     @State private var selectedDate = Date()
@@ -209,7 +164,7 @@ struct MainView: View {
     @Namespace var namespace
 
     @State var ocrIsRequested = false
-    @State private var imageOCR = OCR()
+    //@State private var imageOCR = OCR()
 
     var body: some View {
         NavigationSplitView {
@@ -221,6 +176,7 @@ struct MainView: View {
                 )
                 .datePickerStyle(.graphical)
                 .labelsHidden()
+                .padding(.top, 10)
 
                 HStack {
                     Spacer()
@@ -253,11 +209,6 @@ struct MainView: View {
                         .frame(maxWidth: .infinity)
                 }
 
-                Button(action: performOCR) {
-                    Text("OCR")
-                        .frame(maxWidth: .infinity)
-                }
-
                 if frameManager.isProcessing {
                     ProgressView("Processing...")
                 }
@@ -266,23 +217,38 @@ struct MainView: View {
             }
             .padding(.horizontal, 10)
         } detail: {
-            ImageView(frameManager: frameManager, imageOCR: imageOCR)
+            ImageView(frameManager: frameManager)
         }
     }
 
     func extractFrames() {
         frameManager.extractFrames(date: selectedDate, search: search)
     }
-
-    func performOCR() {
-        Task {
-            let snapshot = frameManager.snapshots[frameManager.index]
-            if snapshot.image != nil {
-                try await imageOCR.performOCR(on: snapshot)
-            }
-        }
-    }
 }
+
+enum OCRError: Error {
+    case error(String)
+}
+
+//@Observable
+//class OCR {
+//var data: [OCRResult] = []
+//var json: String? = nil
+//var request = RecognizeTextRequest()
+
+func decodeOCR(data jsonString: String) throws -> [OCRResult] {
+    //data.removeAll()
+    print("here:", jsonString)
+    guard let jsonData = jsonString.data(using: .utf8) else {
+        throw OCRError.error("Cannot decode json")
+    }
+    let decoder = JSONDecoder()
+    let results = try decoder.decode([OCRResult].self, from: jsonData)
+    print(results)
+    return results
+    //data = results
+}
+//}
 
 struct OCRTextView: View {
     @State private var isSelected = false
@@ -328,24 +294,31 @@ struct OCRTextView: View {
 
 struct ImageView: View {
     let frameManager: VideoFrameManager
-    var imageOCR: OCR
 
     @State private var currentIndex = 0
     @State private var isPlaying = false
-    @State private var ocrIsRequested = false
 
     let timer = Timer.publish(every: 0.025, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack {
             if !frameManager.snapshots.isEmpty {
-                if let image = frameManager.snapshots[frameManager.index].image {
+                let snapshot = frameManager.snapshots[frameManager.index]
+                if let image = snapshot.image {
+                    Spacer()
                     Image(image, scale: 1.0, label: Text("Screenshot"))
                         .resizable()
                         .scaledToFit()
                         .overlay(
-                            ForEach(imageOCR.data, id: \.uuid) { result in
-                                OCRTextView(result.text, normalizedRect: result.normalizedRect)
+                            Group {
+                                if let ocrResults = try? decodeOCR(data: snapshot.ocrData) {
+                                    ForEach(ocrResults, id: \.uuid) { result in
+                                        OCRTextView(
+                                            result.text, normalizedRect: result.normalizedRect)
+                                    }
+                                } else {
+                                    Text("\(snapshot)")
+                                }
                             }
                         )
                 } else {
@@ -371,11 +344,9 @@ struct ImageView: View {
                     Image(systemName: isPlaying ? "pause.circle" : "play.circle")
                         .imageScale(.large)
                 }
-                .disabled(frameManager.snapshots.isEmpty || frameManager.index >= frameManager.snapshots.count - 1)
-
-                Text("\(frameManager.snapshots.count == 0 ? 0 : frameManager.index+1)/\(frameManager.snapshots.count) frames")
-                    .font(.system(.body, design: .monospaced))
-                    .foregroundColor(.secondary)
+                .disabled(
+                    frameManager.snapshots.isEmpty
+                        || frameManager.index >= frameManager.snapshots.count - 1)
 
                 Spacer()
 
@@ -394,7 +365,7 @@ struct ImageView: View {
     }
 
     private func nextImage() {
-        imageOCR.data.removeAll()
+        //imageOCR.data.removeAll()
         frameManager.incrementIndex()
         if frameManager.index == frameManager.snapshots.count - 1 && isPlaying {
             isPlaying = false
@@ -402,7 +373,7 @@ struct ImageView: View {
     }
 
     private func previousImage() {
-        imageOCR.data.removeAll()
+        //imageOCR.data.removeAll()
         frameManager.decrementIndex()
     }
 }
@@ -415,6 +386,7 @@ struct Rekal: App {
         WindowGroup {
             MainView()
         }
+        .windowStyle(.hiddenTitleBar)
     }
 }
 

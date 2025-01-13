@@ -6,8 +6,10 @@ let package = Package(
     name: "Rekal",
     platforms: [.macOS(.v15)],
     dependencies: [
-        .package(url: "https://github.com/stephencelis/SQLite.swift.git", .upToNextMinor(from: "0.15.3")),
-        .package(url: "https://github.com/apple/swift-collections.git", .upToNextMinor(from: "1.1.0"))
+        .package(
+            url: "https://github.com/stephencelis/SQLite.swift.git", .upToNextMinor(from: "0.15.3")),
+        .package(
+            url: "https://github.com/apple/swift-collections.git", .upToNextMinor(from: "1.1.0")),
     ],
     targets: [
         .target(
@@ -16,11 +18,12 @@ let package = Package(
                 .product(name: "SQLite", package: "SQLite.swift")
             ]
         ),
+        // TODO make this one lowercase?
         .executableTarget(
             name: "Rekald",
             dependencies: [
                 "Common",
-                .product(name: "Collections", package: "swift-collections")
+                .product(name: "Collections", package: "swift-collections"),
             ]
         ),
         .executableTarget(
@@ -29,6 +32,6 @@ let package = Package(
         .executableTarget(
             name: "Rekal",
             dependencies: ["Common"]
-        )
+        ),
     ]
 )

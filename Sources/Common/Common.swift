@@ -1,5 +1,5 @@
-import Foundation
 import CoreGraphics
+import Foundation
 import SQLite
 
 // TODO optimization: record a list of applications that were open within a video, so that we can skip entire videos when searching
@@ -12,7 +12,10 @@ public struct SnapshotInfo: Sendable {
     public var appName = ""
     public var url = ""
 
-    public init(windowId: Int, rect: CGRect, windowName: String = "", appId: String = "", appName: String = "", url: String = "") {
+    public init(
+        windowId: Int, rect: CGRect, windowName: String = "", appId: String = "",
+        appName: String = "", url: String = ""
+    ) {
         self.windowId = windowId
         self.rect = rect
         self.windowName = windowName
@@ -27,13 +30,16 @@ public struct Snapshot: Sendable {
     public let timestamp: Int
     public let info: SnapshotInfo
     public let pHash: String
-    public var ocrText: String? = nil
+    public var ocrData: String
 
-    public init(image: CGImage?, timestamp: Int, info: SnapshotInfo, pHash: String) {
+    public init(
+        image: CGImage?, timestamp: Int, info: SnapshotInfo, pHash: String, ocrData: String = ""
+    ) {
         self.image = image
         self.timestamp = timestamp
         self.info = info
         self.pHash = pHash
+        self.ocrData = ocrData
     }
 }
 
@@ -51,19 +57,13 @@ public struct Video: Sendable {
 
 public struct OCRResult: Codable, Identifiable {
     public var text: String
-    public var x: Float
-    public var y: Float
-    public var width: Float
-    public var height: Float
+    public var normalizedRect: CGRect
     public var uuid: UUID
     public var id: UUID { uuid }
 
-    public init(text: String, x: Float, y: Float, width: Float, height: Float, uuid: UUID) {
+    public init(text: String, normalizedRect: CGRect, uuid: UUID) {
         self.text = text
-        self.x = x
-        self.y = y
-        self.width = width
-        self.height = height
+        self.normalizedRect = normalizedRect
         self.uuid = uuid
     }
 }
@@ -98,9 +98,14 @@ public class Files: @unchecked Sendable {
     }
 
     public static func getAppSupportDir() throws -> URL {
-        let bundleIdentifier = "com.example.Rekal" // TODO bundle.main.bundleIdentifier(?)
-        guard let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            throw FilesError.nonexistentDirectory("Failed to get location of Application Support directory")
+        let bundleIdentifier = "com.example.Rekal"  // TODO bundle.main.bundleIdentifier(?)
+        guard
+            let dir = FileManager.default.urls(
+                for: .applicationSupportDirectory, in: .userDomainMask
+            ).first
+        else {
+            throw FilesError.nonexistentDirectory(
+                "Failed to get location of Application Support directory")
         }
         return dir.appending(path: bundleIdentifier)
     }
@@ -111,7 +116,8 @@ public class Files: @unchecked Sendable {
     }
 
     public static func tempDir() throws -> URL {
-        let dir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let dir = FileManager.default.temporaryDirectory.appending(
+            path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
@@ -140,7 +146,7 @@ public class Database {
     let snapshotWidth = SQLite.Expression<Int>("width")
     let snapshotHeight = SQLite.Expression<Int>("height")
     let snapshotPHash = SQLite.Expression<String>("p_hash")
-    let snapshotOCRText = SQLite.Expression<String>("ocr_text")
+    let snapshotOCRData = SQLite.Expression<String>("ocr_data")
     let snapshotVideoTimestamp = SQLite.Expression<Int>("snapshot_video_timestamp")
 
     let videoTimestamp = SQLite.Expression<Int>("timestamp")
@@ -161,66 +167,71 @@ public class Database {
     }
 
     public func createSnapshotTable() throws {
-        try db.run(snapshotTable.create(ifNotExists: true) { t in
-            t.column(snapshotTimestamp, primaryKey: true)
-            t.column(snapshotWindowID)
-            t.column(snapshotWindowName)
-            t.column(snapshotAppID)
-            t.column(snapshotAppName)
-            t.column(snapshotURL)
-            t.column(snapshotX)
-            t.column(snapshotY)
-            t.column(snapshotWidth)
-            t.column(snapshotHeight)
-            t.column(snapshotPHash)
-            t.column(snapshotOCRText)
-            t.column(snapshotVideoTimestamp, references: videoTable, videoTimestamp)
-        })
+        try db.run(
+            snapshotTable.create(ifNotExists: true) { t in
+                t.column(snapshotTimestamp, primaryKey: true)
+                t.column(snapshotWindowID)
+                t.column(snapshotWindowName)
+                t.column(snapshotAppID)
+                t.column(snapshotAppName)
+                t.column(snapshotURL)
+                t.column(snapshotX)
+                t.column(snapshotY)
+                t.column(snapshotWidth)
+                t.column(snapshotHeight)
+                t.column(snapshotPHash)
+                t.column(snapshotOCRData)
+                t.column(snapshotVideoTimestamp, references: videoTable, videoTimestamp)
+            })
     }
 
     public func createVideoTable() throws {
-        try db.run(videoTable.create(ifNotExists: true) { t in
-            t.column(videoTimestamp, primaryKey: true)
-            // t.column(videoFrameCount)
-            t.column(videoPath, unique: true)
-        })
+        try db.run(
+            videoTable.create(ifNotExists: true) { t in
+                t.column(videoTimestamp, primaryKey: true)
+                // t.column(videoFrameCount)
+                t.column(videoPath, unique: true)
+            })
     }
 
     public func insertSnapshot(_ snapshot: Snapshot, videoTimestamp: Int) throws {
-        try db.run(snapshotTable.insert(
-            snapshotTimestamp <- snapshot.timestamp,
-            snapshotWindowID <- snapshot.info.windowId,
-            snapshotWindowName <- snapshot.info.windowName,
-            snapshotAppID <- snapshot.info.appId,
-            snapshotAppName <- snapshot.info.appName,
-            snapshotURL <- snapshot.info.url,
-            snapshotX <- Int(snapshot.info.rect.minX),
-            snapshotY <- Int(snapshot.info.rect.minY),
-            snapshotWidth <- Int(snapshot.info.rect.width),
-            snapshotHeight <- Int(snapshot.info.rect.height),
-            snapshotPHash <- snapshot.pHash,
-            snapshotOCRText <- snapshot.ocrText ?? "",
-            snapshotVideoTimestamp <- videoTimestamp
-        ))
+        try db.run(
+            snapshotTable.insert(
+                snapshotTimestamp <- snapshot.timestamp,
+                snapshotWindowID <- snapshot.info.windowId,
+                snapshotWindowName <- snapshot.info.windowName,
+                snapshotAppID <- snapshot.info.appId,
+                snapshotAppName <- snapshot.info.appName,
+                snapshotURL <- snapshot.info.url,
+                snapshotX <- Int(snapshot.info.rect.minX),
+                snapshotY <- Int(snapshot.info.rect.minY),
+                snapshotWidth <- Int(snapshot.info.rect.width),
+                snapshotHeight <- Int(snapshot.info.rect.height),
+                snapshotPHash <- snapshot.pHash,
+                snapshotOCRData <- snapshot.ocrData,
+                snapshotVideoTimestamp <- videoTimestamp
+            ))
     }
 
     public func insertVideo(_ video: Video) throws {
-        try db.run(videoTable.insert(
-            videoTimestamp <- video.timestamp,
-            // videoFrameCount <- video.frameCount,
-            videoPath <- video.url.path
-        ))
+        try db.run(
+            videoTable.insert(
+                videoTimestamp <- video.timestamp,
+                // videoFrameCount <- video.frameCount,
+                videoPath <- video.url.path
+            ))
     }
 
     public func videosBetween(minTime: Int, maxTime: Int) throws -> [Video] {
         var videos: [Video] = []
         let query = videoTable.filter(videoTimestamp >= minTime && videoTimestamp < maxTime)
         for row in try db.prepare(query) {
-            videos.append(Video(
-                timestamp: row[videoTimestamp],
-                // frameCount: row[videoFrameCount],
-                url: URL(filePath: row[videoPath])
-            ))
+            videos.append(
+                Video(
+                    timestamp: row[videoTimestamp],
+                    // frameCount: row[videoFrameCount],
+                    url: URL(filePath: row[videoPath])
+                ))
         }
         return videos
     }
@@ -231,18 +242,22 @@ public class Database {
         for row in try db.prepare(query) {
             let info = SnapshotInfo(
                 windowId: row[snapshotWindowID],
-                rect: CGRect(x: row[snapshotX], y: row[snapshotY], width: row[snapshotWidth], height: row[snapshotHeight]),
+                rect: CGRect(
+                    x: row[snapshotX], y: row[snapshotY], width: row[snapshotWidth],
+                    height: row[snapshotHeight]),
                 windowName: row[snapshotWindowName] ?? "",
                 appId: row[snapshotAppID] ?? "",
                 appName: row[snapshotAppName] ?? "",
                 url: row[snapshotURL] ?? ""
             )
-            snapshots.append(Snapshot(
-                image: nil,
-                timestamp: row[snapshotTimestamp],
-                info: info,
-                pHash: row[snapshotPHash]
-            ))
+            snapshots.append(
+                Snapshot(
+                    image: nil,
+                    timestamp: row[snapshotTimestamp],
+                    info: info,
+                    pHash: row[snapshotPHash],
+                    ocrData: row[snapshotOCRData]
+                ))
         }
 
         return snapshots
