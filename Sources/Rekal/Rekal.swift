@@ -7,7 +7,6 @@ import Vision
 import ImageIO
 
 // TODO don't block the UI while loading images
-// TODO load full images
 // FIXME Viewer is pretty memory-heavy, e.g. 7.24gb for 4774 files (dec 27)
 //       Memory usage continues increasing after it finishes loading images
 //       Or maybe it just seems that way because of lazy loading?
@@ -18,6 +17,12 @@ import ImageIO
 
 // TODO XPC/EventKit
 // TODO holding arrow keys scrubs in that direction
+// TODO load last 5 minutes of images from memory (via XPC)
+
+// TODO support cmd+c, cmd+a, context menu -> copy
+
+// FIXME changing current image via stepper does not cancel OCR
+// FIXME OCR coordinates are messed up in upper left corner of image
 
 
 // TODO write unprocessed images to disk on quit
@@ -42,14 +47,14 @@ import ImageIO
 
 @MainActor
 class VideoFrameManager: ObservableObject {
-    @Published var images: [CGImage] = []
+    @Published var snapshots: [Snapshot] = []
     @Published var videos: [Video] = []
     @Published var index = 0
     @Published var isProcessing = false
 
     // TODO consider whether SQL JOIN function would be useful
-    func extractFrames(date: Date) {
-        images = []
+    func extractFrames(date: Date, search: String = "") {
+        snapshots = []
         videos = []
         index = 0
 
@@ -63,7 +68,11 @@ class VideoFrameManager: ObservableObject {
 
             Task {
                 isProcessing = true
+                // TODO skip as much of this process as possible according to filters
                 for video in videos {
+                    var rawImages: [CGImage] = []
+                    var videoSnapshots = try db.snapshotsInVideo(videoTimestamp: video.timestamp)
+
                     let asset = AVURLAsset(url: video.url)
                     let generator = AVAssetImageGenerator(asset: asset)
                     generator.appliesPreferredTrackTransform = true
@@ -79,13 +88,44 @@ class VideoFrameManager: ObservableObject {
                         for await result in generator.images(for: times) {
                             switch result {
                             case .success(requestedTime: _, image: let image, actualTime: _):
-                                self.images.append(image)
+                                rawImages.append(image)
                             case .failure(requestedTime: let requested, error: let error):
                                 print("Failed to process image at \(requested.seconds) seconds for video '\(video.url.path)': '\(error)'")
                             }
                         }
                     } catch {
                         print("Error loading video: \(error)")
+                    }
+
+                    guard videoSnapshots.count == rawImages.count else {
+                        print("videoSnapshots.count != rawImages.count for \(video.url.path)")
+                        continue
+                    }
+
+                    // TODO proper fuzzy search
+                    for (index, _) in rawImages.enumerated() {
+                        videoSnapshots[index].image = rawImages[index]
+                        let trimmedSearch = search.lowercased().trimmingCharacters(in: .whitespaces)
+                        if trimmedSearch == "" {
+                            snapshots.append(videoSnapshots[index])
+                            continue
+                        }
+
+                        let info = videoSnapshots[index].info
+                        if trimmedSearch == info.appId.lowercased() {
+                            snapshots.append(videoSnapshots[index])
+                            continue
+                        }
+
+                        if let name = info.appId.split(separator: ".").last, trimmedSearch == name.lowercased() {
+                            snapshots.append(videoSnapshots[index])
+                            continue
+                        }
+
+                        if trimmedSearch == info.appName.lowercased().trimmingCharacters(in: .whitespaces) {
+                            snapshots.append(videoSnapshots[index])
+                            continue
+                        }
                     }
                 }
                 isProcessing = false
@@ -97,7 +137,7 @@ class VideoFrameManager: ObservableObject {
     }
 
     func incrementIndex() {
-        if index < images.count - 1 {
+        if index < snapshots.count - 1 {
             index += 1
         }
     }
@@ -109,30 +149,81 @@ class VideoFrameManager: ObservableObject {
     }
 }
 
+@Observable
+class OCR {
+    var observations = [RecognizedTextObservation]()
+    var request = RecognizeTextRequest()
+
+    @MainActor
+    func performOCR(on image: CGImage) async throws {
+        request.usesLanguageCorrection = false
+        request.recognitionLanguages = [Locale.Language(identifier: "en-US")]
+        request.recognitionLevel = .accurate
+
+        observations.removeAll()
+
+        let results = try await request.perform(on: image)
+
+        for observation in results {
+            observations.append(observation)
+        }
+    }
+}
+
 struct MainView: View {
     @StateObject private var frameManager = VideoFrameManager()
     @State private var selectedDate = Date()
+    @State private var search = ""
     @Namespace var namespace
 
+    @State var ocrIsRequested = false
     @State private var imageOCR = OCR()
 
     var body: some View {
         NavigationSplitView {
             VStack {
                 DatePicker(
-                    "Select Date",
+                    "",
                     selection: $selectedDate,
-                    displayedComponents: [.date]
+                    displayedComponents: .date
                 )
                 .datePickerStyle(.graphical)
+                .labelsHidden()
 
-                Button("Extract Frames") {
-                    frameManager.extractFrames(date: selectedDate)
+                HStack {
+                    Spacer()
+
+                    TextField("", value: $frameManager.index, formatter: NumberFormatter())
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.trailing)
+                        .font(.system(.body, design: .monospaced))
+                        .disabled(frameManager.snapshots.isEmpty)
+
+                    Text("/ \(frameManager.snapshots.count)")
+                        .font(.system(.body, design: .monospaced))
+
+                    // FIXME the stepper will happily go out of bounds
+                    Stepper(
+                        value: $frameManager.index,
+                        in: 0...frameManager.snapshots.count,
+                        step: 10
+                    ) {}
+                    .disabled(frameManager.snapshots.isEmpty)
                 }
-                .disabled(frameManager.isProcessing)
+                .padding(.horizontal, 2)
 
-                Button("OCR") {
-                    Task { try await imageOCR.performOCR() }
+                TextField("Search", text: $search)
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.leading)
+
+                Button(action: extractFrames) {
+                    Text("Extract frames")
+                        .frame(maxWidth: .infinity)
+                }
+
+                Button(action: performOCR) {
+                    Text("OCR")
+                        .frame(maxWidth: .infinity)
                 }
 
                 if frameManager.isProcessing {
@@ -141,53 +232,26 @@ struct MainView: View {
 
                 Spacer()
             }
+            .padding(.horizontal, 10)
         } detail: {
             ImageView(frameManager: frameManager, imageOCR: imageOCR)
         }
     }
-}
 
-@Observable
-class OCR {
-    var observations = [RecognizedTextObservation]()
+    func extractFrames() {
+        frameManager.extractFrames(date: selectedDate, search: search)
+    }
 
-    var request = RecognizeTextRequest()
-
-    @MainActor
-    func performOCR() async throws {
-        request.usesLanguageCorrection = false
-        request.recognitionLanguages = [Locale.Language(identifier: "en-US")]
-        request.recognitionLevel = .accurate
-
-        observations.removeAll()
-
-        let url = URL(filePath: "/tmp/a.png")
-        let results = try await request.perform(on: url)
-
-        for observation in results {
-            observations.append(observation)
+    func performOCR() {
+        Task {
+            if let image = frameManager.snapshots[frameManager.index].image {
+                try await imageOCR.performOCR(on: image)
+            }
         }
     }
 }
 
-func loadCGImage() -> CGImage? {
-    let url = URL(filePath: "/tmp/a.png")
-    guard let imageSource = CGImageSourceCreateWithURL(url as CFURL, nil) else {
-        print("uhoh")
-        return nil
-    }
-
-    let cgImage = CGImageSourceCreateImageAtIndex(imageSource, 0, nil)
-
-    if cgImage == nil {
-        print("failed")
-    }
-
-    return cgImage
-}
-
 struct OCRTextView: View {
-    @State private var hoverLocation: CGPoint = .zero
     @State private var isSelected = false
     @State private var isHovering = false
     @State private var text: String
@@ -195,18 +259,35 @@ struct OCRTextView: View {
 
     init(_ text: String, boundingBox: NormalizedRect) {
         self.text = text
-        // self.normalizedRect = normalizedRect
         self.boundingBox = boundingBox
     }
 
+    // TODO finish
     var body: some View {
         GeometryReader { geometry in
             let rect = boundingBox.toImageCoordinates(geometry.size, origin: .upperLeft)
             Rectangle()
-                .fill(isHovering ? .green : .blue)
+                // .fill(isHovering ? .green : .blue)
+                .fill(isSelected ? .blue : .clear)
                 .contentShape(Rectangle())
                 .frame(width: rect.width, height: rect.height)
                 .offset(x: rect.minX, y: rect.minY)
+                .onTapGesture(count: 2) {
+                    isSelected = true
+                    print("double click")
+                }
+                .onTapGesture(count: 1) {
+                    isSelected = false
+                    print("single click")
+                }
+                .onHover { hovering in
+                    isHovering = hovering
+                    if hovering {
+                        NSCursor.iBeam.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
         }
     }
 }
@@ -217,21 +298,15 @@ struct ImageView: View {
 
     @State private var currentIndex = 0
     @State private var isPlaying = false
+    @State private var ocrIsRequested = false
 
     let timer = Timer.publish(every: 0.025, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack {
-            if !frameManager.images.isEmpty {
-                Image(frameManager.images[frameManager.index], scale: 1.0, label: Text("Screenshot"))
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                Spacer()
-
-                if let image = loadCGImage() {
-                    Image(image, scale: 1.0, label: Text("a"))
+            if !frameManager.snapshots.isEmpty {
+                if let image = frameManager.snapshots[frameManager.index].image {
+                    Image(image, scale: 1.0, label: Text("Screenshot"))
                         .resizable()
                         .scaledToFit()
                         .overlay(
@@ -240,7 +315,13 @@ struct ImageView: View {
                                 OCRTextView(text, boundingBox: observation.boundingBox)
                             }
                         )
+                } else {
+                    Text("Failed to get the image")
                 }
+            } else {
+                Spacer()
+
+                Text("No images to display")
             }
 
             Spacer()
@@ -257,9 +338,9 @@ struct ImageView: View {
                     Image(systemName: isPlaying ? "pause.circle" : "play.circle")
                         .imageScale(.large)
                 }
-                .disabled(frameManager.images.isEmpty || frameManager.index >= frameManager.images.count - 1)
+                .disabled(frameManager.snapshots.isEmpty || frameManager.index >= frameManager.snapshots.count - 1)
 
-                Text("\(frameManager.images.count == 0 ? 0 : frameManager.index+1)/\(frameManager.images.count) frames")
+                Text("\(frameManager.snapshots.count == 0 ? 0 : frameManager.index+1)/\(frameManager.snapshots.count) frames")
                     .font(.system(.body, design: .monospaced))
                     .foregroundColor(.secondary)
 
@@ -268,7 +349,7 @@ struct ImageView: View {
                 Button(action: nextImage) {
                     Image(systemName: "arrow.right")
                 }
-                .disabled(isPlaying || frameManager.index >= frameManager.images.count - 1)
+                .disabled(isPlaying || frameManager.index >= frameManager.snapshots.count - 1)
             }
             .padding()
         }
@@ -279,15 +360,17 @@ struct ImageView: View {
         }
     }
 
-    private func previousImage() {
-        frameManager.decrementIndex()
-    }
-
     private func nextImage() {
+        imageOCR.observations.removeAll()
         frameManager.incrementIndex()
-        if frameManager.index == frameManager.images.count - 1 && isPlaying {
+        if frameManager.index == frameManager.snapshots.count - 1 && isPlaying {
             isPlaying = false
         }
+    }
+
+    private func previousImage() {
+        imageOCR.observations.removeAll()
+        frameManager.decrementIndex()
     }
 }
 
