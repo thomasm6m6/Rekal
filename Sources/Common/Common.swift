@@ -49,6 +49,25 @@ public struct Video: Sendable {
     }
 }
 
+public struct OCRResult: Codable, Identifiable {
+    public var text: String
+    public var x: Float
+    public var y: Float
+    public var width: Float
+    public var height: Float
+    public var uuid: UUID
+    public var id: UUID { uuid }
+
+    public init(text: String, x: Float, y: Float, width: Float, height: Float, uuid: UUID) {
+        self.text = text
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.uuid = uuid
+    }
+}
+
 public func log(_ string: String) {
     print("\(Date())\t\(string)")
 }

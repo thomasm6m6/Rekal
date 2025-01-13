@@ -14,6 +14,7 @@ import ImageIO
 // TODO export image
 // TODO zoom
 // TODO slider for granularity using similarity percentage via hashing
+// TODO serialize OCR data
 
 // TODO XPC/EventKit
 // TODO holding arrow keys scrubs in that direction
@@ -149,24 +150,61 @@ class VideoFrameManager: ObservableObject {
     }
 }
 
+enum OCRError: Error {
+    case error(String)
+}
+
 @Observable
 class OCR {
-    var observations = [RecognizedTextObservation]()
+    var data: [OCRResult] = []
+    var json: String? = nil
     var request = RecognizeTextRequest()
 
     @MainActor
-    func performOCR(on image: CGImage) async throws {
+    func performOCR(on snapshot: Snapshot) async throws {
+        guard let image = snapshot.image else {
+            throw OCRError.error("No image")
+        }
+
+        data.removeAll()
+
         request.usesLanguageCorrection = false
         request.recognitionLanguages = [Locale.Language(identifier: "en-US")]
         request.recognitionLevel = .accurate
 
-        observations.removeAll()
-
         let results = try await request.perform(on: image)
 
         for observation in results {
-            observations.append(observation)
+            let text = observation.topCandidates(1)[0].string
+            let rect = observation.boundingBox.cgRect
+            data.append(OCRResult(
+                text: text,
+                x: Float(rect.minX),
+                y: Float(rect.minY),
+                width: Float(rect.width),
+                height: Float(rect.height),
+                uuid: observation.uuid
+            ))
         }
+
+        let encoder = JSONEncoder()
+        let jsonData = try encoder.encode(data)
+        if let jsonString = String(data: jsonData, encoding: .utf8) {
+            json = jsonString
+            // print("Encoded JSON string:", jsonString)
+        }
+
+        try decode()
+        print(data)
+    }
+
+    func decode() throws {
+        guard let json = json, let jsonData = json.data(using: .utf8) else {
+            throw OCRError.error("Cannot decode json")
+        }
+        let decoder = JSONDecoder()
+        let results = try decoder.decode([OCRResult].self, from: jsonData)
+        data = results
     }
 }
 
@@ -244,8 +282,9 @@ struct MainView: View {
 
     func performOCR() {
         Task {
-            if let image = frameManager.snapshots[frameManager.index].image {
-                try await imageOCR.performOCR(on: image)
+            let snapshot = frameManager.snapshots[frameManager.index]
+            if snapshot.image != nil {
+                try await imageOCR.performOCR(on: snapshot)
             }
         }
     }
@@ -255,20 +294,33 @@ struct OCRTextView: View {
     @State private var isSelected = false
     @State private var isHovering = false
     @State private var text: String
-    @State private var boundingBox: NormalizedRect
+    // @State private var boundingBox: NormalizedRect
+    @State private var x: Float
+    @State private var y: Float
+    @State private var width: Float
+    @State private var height: Float
 
-    init(_ text: String, boundingBox: NormalizedRect) {
+    init(_ text: String, x: Float, y: Float, width: Float, height: Float) {
         self.text = text
-        self.boundingBox = boundingBox
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
     }
 
     // TODO finish
     var body: some View {
         GeometryReader { geometry in
+            let boundingBox = NormalizedRect(
+                x: CGFloat(x),
+                y: CGFloat(y),
+                width: CGFloat(width),
+                height: CGFloat(height)
+            )
             let rect = boundingBox.toImageCoordinates(geometry.size, origin: .upperLeft)
             Rectangle()
-                // .fill(isHovering ? .green : .blue)
-                .fill(isSelected ? .blue : .clear)
+                .fill(isHovering ? .green : .blue)
+                // .fill(isSelected ? .blue : .clear)
                 .contentShape(Rectangle())
                 .frame(width: rect.width, height: rect.height)
                 .offset(x: rect.minX, y: rect.minY)
@@ -310,9 +362,12 @@ struct ImageView: View {
                         .resizable()
                         .scaledToFit()
                         .overlay(
-                            ForEach(imageOCR.observations, id: \.uuid) { observation in
-                                let text = observation.topCandidates(1)[0].string
-                                OCRTextView(text, boundingBox: observation.boundingBox)
+                            ForEach(imageOCR.data, id: \.uuid) { result in
+                                OCRTextView(result.text,
+                                    x: result.x,
+                                    y: result.y,
+                                    width: result.width,
+                                    height: result.height)
                             }
                         )
                 } else {
@@ -361,7 +416,7 @@ struct ImageView: View {
     }
 
     private func nextImage() {
-        imageOCR.observations.removeAll()
+        imageOCR.data.removeAll()
         frameManager.incrementIndex()
         if frameManager.index == frameManager.snapshots.count - 1 && isPlaying {
             isPlaying = false
@@ -369,7 +424,7 @@ struct ImageView: View {
     }
 
     private func previousImage() {
-        imageOCR.observations.removeAll()
+        imageOCR.data.removeAll()
         frameManager.decrementIndex()
     }
 }
