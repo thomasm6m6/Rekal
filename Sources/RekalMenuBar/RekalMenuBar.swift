@@ -1,6 +1,9 @@
 import SwiftUI
 
 // TODO XPC with daemon
+// TODO launchd
+// TODO rename this (RekalMenuBarApp?)
+// TODO display a dynamic count of unprocessed images (including the timestamp of the oldest unprocessed image)
 
 @main
 struct RekalMenuBar: App {

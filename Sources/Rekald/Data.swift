@@ -19,6 +19,5 @@ actor Data {
 
     func remove(for timestamp: Int) {
         snapshots[timestamp] = nil
-        // snapshots.removeValue(forKey: timestamp)
     }
 }

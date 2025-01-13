@@ -7,6 +7,27 @@ import CoreImage
 import Common
 
 // TODO proper queue algorithm?
+// TODO layout-aware OCR
+// TODO make sure it correctly handles being unplugged mid-processing
+
+// TODO dump files to disk after a certain period of time if we haven't been connected to power
+
+// TODO write video files as soon as they're done, not once all the images have been processed
+// (might be that this is already happening, but the "wrote file.mp4" message waits)
+
+// FIXME:
+// 2025-01-13 07:32:46 +0000       Skipping: idle
+// timestamp: 1736748533
+// timestamp: 1736748537
+// 2025-01-13 07:32:47 +0000       Skipping: idle
+// 2025-01-13 07:32:47 +0000       Processing 270 snapshots...
+// timestamp: 1736748537
+// 2025-01-13 07:32:47 +0000       Error processing snapshots: UNIQUE constraint failed: videos.timestamp (code: 19)
+// timestamp: 1736748542
+// timestamp: 1736748544
+// 2025-01-13 07:32:48 +0000       Skipping: idle
+// timestamp: 1736748548
+
 
 class MediaWriter {
     let input: AVAssetWriterInput

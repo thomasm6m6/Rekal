@@ -2,6 +2,8 @@ import Foundation
 import CoreGraphics
 import SQLite
 
+// TODO optimization: record a list of applications that were open within a video, so that we can skip entire videos when searching
+
 public struct SnapshotInfo: Sendable {
     public let windowId: Int
     public let rect: CGRect
@@ -21,13 +23,13 @@ public struct SnapshotInfo: Sendable {
 }
 
 public struct Snapshot: Sendable {
-    public let image: CGImage
+    public var image: CGImage?
     public let timestamp: Int
     public let info: SnapshotInfo
     public let pHash: String
     public var ocrText: String? = nil
 
-    public init(image: CGImage, timestamp: Int, info: SnapshotInfo, pHash: String) {
+    public init(image: CGImage?, timestamp: Int, info: SnapshotInfo, pHash: String) {
         self.image = image
         self.timestamp = timestamp
         self.info = info
@@ -202,5 +204,28 @@ public class Database {
             ))
         }
         return videos
+    }
+
+    public func snapshotsInVideo(videoTimestamp: Int) throws -> [Snapshot] {
+        var snapshots: [Snapshot] = []
+        let query = snapshotTable.filter(snapshotVideoTimestamp == videoTimestamp)
+        for row in try db.prepare(query) {
+            let info = SnapshotInfo(
+                windowId: row[snapshotWindowID],
+                rect: CGRect(x: row[snapshotX], y: row[snapshotY], width: row[snapshotWidth], height: row[snapshotHeight]),
+                windowName: row[snapshotWindowName] ?? "",
+                appId: row[snapshotAppID] ?? "",
+                appName: row[snapshotAppName] ?? "",
+                url: row[snapshotURL] ?? ""
+            )
+            snapshots.append(Snapshot(
+                image: nil,
+                timestamp: row[snapshotTimestamp],
+                info: info,
+                pHash: row[snapshotPHash]
+            ))
+        }
+
+        return snapshots
     }
 }
