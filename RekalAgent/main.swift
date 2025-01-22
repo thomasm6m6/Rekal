@@ -16,6 +16,8 @@ import Foundation
 // FIXME loginitem seems a bit messed up. Doesn't show in user-configurable login items, and even after being unregistered it comes back upon restart
 //
 // TODO change display name so that control center message says "Rekal recorded the screen recently" rather than "RekalAgent recorded the screen recently"
+//
+// TODO figure out logging
 
 log("Starting daemon...")
 

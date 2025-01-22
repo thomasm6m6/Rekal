@@ -5,7 +5,6 @@ class XPCManager {
     var session: XPCSession?
     
     func setup() {
-        print("here")
         session = try? XPCSession(machService: "com.thomasm6m6.RekalAgent.xpc")
     }
 }
