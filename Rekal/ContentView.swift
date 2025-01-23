@@ -69,9 +69,7 @@ class LaunchManager {
 struct ContentView: View {
     @StateObject private var frameManager = FrameManager()
     @State private var selectedDate = Date()
-    @State private var searchText = ""
     var xpcManager: XPCManager
-    //    @State var ocrResults: [OCRResult] = []
     
     private let backgroundColor = Color(red: 18/256, green: 18/256, blue: 18/256) // #121212
 
@@ -81,60 +79,10 @@ struct ContentView: View {
                 .ignoresSafeArea()
 
             NavigationStack {
-                VStack {
-                    Spacer()
-
-                    if !frameManager.snapshots.isEmpty {
-                        let timestamp = frameManager.snapshots.keys[frameManager.index]
-                        if let snapshot = frameManager.snapshots[timestamp], let image = snapshot.image {
-                            Image(image, scale: 1.0, label: Text("Screenshot"))
-                                .resizable()
-                                .scaledToFit()
-                        } else {
-                            Text("Failed to get the image")
-                        }
-                    } else {
-                        Text("No images to display")
-                    }
-
-                    Spacer()
-                }
+                ImageView(frameManager: frameManager)
             }
             .toolbar {
-                Button("Previous", systemImage: "chevron.left", action: previousImage)
-                    .disabled(frameManager.snapshots.isEmpty || frameManager.index < 1)
-
-                Button("Next", systemImage: "chevron.right", action: nextImage)
-                    .disabled(frameManager.snapshots.isEmpty || frameManager.index >= frameManager.snapshots.count)
-
-                Text("\(frameManager.snapshots.count == 0 ? 0 : frameManager.index + 1)/\(frameManager.snapshots.count)")
-                    .font(.system(.body, design: .monospaced))
-
-                Spacer()
-
-                // FIXME doesn't appear in overflow menu
-                // FIXME not centered
-                // FIXME styling is hacky
-                // TODO make search box stand out somehow (rgb(30,30,30) background)
-                TextField("Search...", text: $searchText)
-                    .textFieldStyle(.roundedBorder)
-                //                    .background(.red.opacity(0.5))
-                //                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .frame(width: 300)
-
-                Spacer()
-
-                Button("Unregister") {
-                    _ = LaunchManager.unregisterLaunchAgent()
-                    _ = LaunchManager.unregisterLoginItem()
-                }
-
-                Button("Process now") {
-                    //
-                }
-
-                Button("Info", systemImage: "info.circle", action: showInfo)
-                    .disabled(frameManager.snapshots.isEmpty)
+                Toolbar(frameManager: frameManager)
             }
             .toolbarBackground(backgroundColor)
         }
@@ -145,17 +93,6 @@ struct ContentView: View {
 
             _ = LaunchManager.registerLoginItem()
         }
-    }
-
-    func previousImage() {
-        frameManager.decrementIndex()
-    }
-
-    func nextImage() {
-        frameManager.incrementIndex()
-    }
-
-    func showInfo() {
     }
 
     func fetchImages() {
@@ -177,5 +114,84 @@ struct ContentView: View {
                 log("Failed to send message or decode reply: \(error)")
             }
         }
+    }
+}
+
+struct ImageView: View {
+    var frameManager: FrameManager
+
+    var body: some View {
+        VStack {
+            Spacer()
+
+            if !frameManager.snapshots.isEmpty {
+                let timestamp = frameManager.snapshots.keys[frameManager.index]
+                if let snapshot = frameManager.snapshots[timestamp],
+                   let image = snapshot.image {
+                    Image(image, scale: 1.0, label: Text("Screenshot"))
+                        .resizable()
+                        .scaledToFit()
+                } else {
+                    Text("Failed to get the image")
+                }
+            } else {
+                Text("No images to display")
+            }
+
+            Spacer()
+        }
+    }
+}
+
+struct Toolbar: View {
+    var frameManager: FrameManager
+    @State private var searchText = ""
+
+    var body: some View {
+        Button("Previous", systemImage: "chevron.left", action: previousImage)
+            .disabled(frameManager.snapshots.isEmpty || frameManager.index < 1)
+        
+        Button("Next", systemImage: "chevron.right", action: nextImage)
+            .disabled(frameManager.snapshots.isEmpty || frameManager.index >= frameManager.snapshots.count)
+        
+        Text("\(frameManager.snapshots.count == 0 ? 0 : frameManager.index + 1)/\(frameManager.snapshots.count)")
+            .font(.system(.body, design: .monospaced))
+        
+        Spacer()
+        
+        // FIXME doesn't appear in overflow menu
+        // FIXME not centered
+        // FIXME styling is hacky
+        // TODO make search box stand out somehow (rgb(30,30,30) background)
+        TextField("Search...", text: $searchText)
+            .textFieldStyle(.roundedBorder)
+        //                    .background(.red.opacity(0.5))
+        //                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            .frame(width: 300)
+        
+        Spacer()
+        
+        Button("Unregister") {
+            _ = LaunchManager.unregisterLaunchAgent()
+            _ = LaunchManager.unregisterLoginItem()
+        }
+        
+        Button("Process now") {
+            //
+        }
+        
+        Button("Info", systemImage: "info.circle", action: showInfo)
+            .disabled(frameManager.snapshots.isEmpty)
+    }
+
+    func previousImage() {
+        frameManager.decrementIndex()
+    }
+
+    func nextImage() {
+        frameManager.incrementIndex()
+    }
+
+    func showInfo() {
     }
 }
