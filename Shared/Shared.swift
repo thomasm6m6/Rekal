@@ -1,5 +1,7 @@
 import Foundation
 import CoreGraphics
+import ImageIO
+import Vision
 internal import SQLite
 
 struct XPCRequest: Codable {
@@ -27,17 +29,8 @@ enum Query: Codable {
     case recordingStatus
 }
 
-enum MessageType2: Codable {
-    case fetchImages
-    case startRecording
-    case pauseRecording
-    case processImages
-    case getImageCount
-    case getRecordingStatus
-}
-
 enum Reply: Codable {
-//    case image(Data?)
+    case snapshots([EncodedSnapshot])
     case status(Status)
     case imageCount(Int)
     case error(String)
@@ -48,15 +41,15 @@ enum Status: Codable {
     case stopped
 }
 
-public struct SnapshotInfo: Sendable {
-    public let windowId: Int
-    public let rect: CGRect
-    public var windowName = ""
-    public var appId = ""
-    public var appName = ""
-    public var url = ""
+struct SnapshotInfo: Codable, Sendable {
+    let windowId: Int
+    let rect: CGRect
+    var windowName = ""
+    var appId = ""
+    var appName = ""
+    var url = ""
 
-    public init(
+    init(
         windowId: Int, rect: CGRect, windowName: String = "", appId: String = "",
         appName: String = "", url: String = ""
     ) {
@@ -69,14 +62,14 @@ public struct SnapshotInfo: Sendable {
     }
 }
 
-public struct Snapshot: Sendable {
-    public var image: CGImage?
-    public let timestamp: Int
-    public let info: SnapshotInfo
-    public let pHash: String
-    public var ocrData: String
+struct Snapshot: Sendable {
+    var image: CGImage?
+    let timestamp: Int
+    let info: SnapshotInfo
+    let pHash: String
+    var ocrData: String
 
-    public init(
+    init(
         image: CGImage?, timestamp: Int, info: SnapshotInfo, pHash: String, ocrData: String = ""
     ) {
         self.image = image
@@ -87,47 +80,109 @@ public struct Snapshot: Sendable {
     }
 }
 
-public struct Video: Sendable {
-    public let timestamp: Int
-    // public let frameCount: Int
-    public let url: URL
+struct EncodedSnapshot: Codable {
+    var image: Data?
+    let timestamp: Int
+    let info: SnapshotInfo
+    let pHash: String
+    let ocrData: String
+    
+    init(
+        image: CGImage?, timestamp: Int, info: SnapshotInfo, pHash: String, ocrData: String = ""
+    ) {
+        if let image = image {
+            self.image = image.png
+        }
+        self.timestamp = timestamp
+        self.info = info
+        self.pHash = pHash
+        self.ocrData = ocrData
+    }
+}
 
-    public init(timestamp: Int, url: URL) {
+extension CGImage {
+    var png: Data? {
+        guard let mutableData = CFDataCreateMutable(nil, 0),
+              let destination = CGImageDestinationCreateWithData(mutableData, "public.png" as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, self, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return mutableData as Data
+    }
+}
+
+struct Video: Sendable {
+    let timestamp: Int
+    // let frameCount: Int
+    let url: URL
+
+    init(timestamp: Int, url: URL) {
         self.timestamp = timestamp
         // self.frameCount = frameCount
         self.url = url
     }
 }
 
-public struct OCRResult: Codable, Identifiable {
-    public var text: String
-    public var normalizedRect: CGRect
-    public var uuid: UUID
-    public var id: UUID { uuid }
+struct OCRResult: Codable, Identifiable {
+    var text: String
+    var normalizedRect: CGRect
+    var uuid: UUID
+    var id: UUID { uuid }
 
-    public init(text: String, normalizedRect: CGRect, uuid: UUID) {
+    init(text: String, normalizedRect: CGRect, uuid: UUID) {
         self.text = text
         self.normalizedRect = normalizedRect
         self.uuid = uuid
     }
 }
 
-public func log(_ string: String) {
+enum OCRError: Error {
+    case error(String)
+}
+
+func performOCR(on image: CGImage) async throws -> String {
+    var request = RecognizeTextRequest()
+    request.automaticallyDetectsLanguage = true
+    request.usesLanguageCorrection = true
+    request.recognitionLanguages = [Locale.Language(identifier: "en-US")]
+    request.recognitionLevel = .accurate
+
+    let results = try await request.perform(on: image)
+    var data: [OCRResult] = []
+
+    for observation in results {
+        data.append(
+            OCRResult(
+                text: observation.topCandidates(1)[0].string,
+                normalizedRect: observation.boundingBox.cgRect,
+                uuid: observation.uuid
+            ))
+    }
+
+    let encoder = JSONEncoder()
+    let jsonData = try encoder.encode(data)
+    guard let jsonString = String(data: jsonData, encoding: .utf8) else {
+        throw OCRError.error("Cannot encode OCR data as JSON")
+    }
+    return jsonString
+}
+
+
+func log(_ string: String) {
     print("\(Date())\t\(string)")
 }
 
-public enum FilesError: Error {
+enum FilesError: Error {
     case nonexistentDirectory(String)
 }
 
 // TODO this is probably unsafe/wrong
-public class Files: @unchecked Sendable {
-    public var appSupportDir: URL
-    public var databaseFile: URL
+class Files: @unchecked Sendable {
+    var appSupportDir: URL
+    var databaseFile: URL
 
     // TODO rename to "shared"
     // maybe: static let shared = Files()
-    public static let `default`: Files = {
+    static let `default`: Files = {
         do {
             return try Files(
                 appSupportDir: Files.getAppSupportDir(),
@@ -138,13 +193,13 @@ public class Files: @unchecked Sendable {
         }
     }()
 
-    public init(appSupportDir: URL, databaseFile: URL) {
+    init(appSupportDir: URL, databaseFile: URL) {
         self.appSupportDir = appSupportDir
         self.databaseFile = databaseFile
     }
 
-    public static func getAppSupportDir() throws -> URL {
-        let bundleIdentifier = "com.example.Rekal"  // TODO bundle.main.bundleIdentifier(?)
+    static func getAppSupportDir() throws -> URL {
+        let bundleIdentifier = "com.thomasm6m6.Rekal"  // TODO bundle.main.bundleIdentifier(?)
         guard
             let dir = FileManager.default.urls(
                 for: .applicationSupportDirectory, in: .userDomainMask
@@ -156,12 +211,12 @@ public class Files: @unchecked Sendable {
         return dir.appending(path: bundleIdentifier)
     }
 
-    public static func getDatabaseFile() throws -> URL {
+    static func getDatabaseFile() throws -> URL {
         let appSupportDir = try self.getAppSupportDir()
         return appSupportDir.appending(path: "db.sqlite3")
     }
 
-    public static func tempDir() throws -> URL {
+    static func tempDir() throws -> URL {
         let dir = FileManager.default.temporaryDirectory.appending(
             path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -171,12 +226,12 @@ public class Files: @unchecked Sendable {
     // Maybe functions to iterate over mp4s
 }
 
-public enum DatabaseError: Error {
+enum DatabaseError: Error {
     case fileError(String)
     case error(String)
 }
 
-public class Database {
+class Database {
     let db: Connection
     let snapshotTable = Table("snapshots")
     let videoTable = Table("videos")
@@ -199,7 +254,7 @@ public class Database {
     // let videoFrameCount = SQLite.Expression<Int>("frame_count")
     let videoPath = SQLite.Expression<String>("path")
 
-    public init() throws {
+    init() throws {
         let file = Files.default.databaseFile
         if !FileManager.default.fileExists(atPath: file.path) {
             guard FileManager.default.createFile(atPath: file.path, contents: nil) else {
@@ -212,7 +267,7 @@ public class Database {
         try createVideoTable()
     }
 
-    public func createSnapshotTable() throws {
+    func createSnapshotTable() throws {
         try db.run(
             snapshotTable.create(ifNotExists: true) { t in
                 t.column(snapshotTimestamp, primaryKey: true)
@@ -231,7 +286,7 @@ public class Database {
             })
     }
 
-    public func createVideoTable() throws {
+    func createVideoTable() throws {
         try db.run(
             videoTable.create(ifNotExists: true) { t in
                 t.column(videoTimestamp, primaryKey: true)
@@ -240,7 +295,7 @@ public class Database {
             })
     }
 
-    public func insertSnapshot(_ snapshot: Snapshot, videoTimestamp: Int) throws {
+    func insertSnapshot(_ snapshot: Snapshot, videoTimestamp: Int) throws {
         try db.run(
             snapshotTable.insert(
                 snapshotTimestamp <- snapshot.timestamp,
@@ -259,7 +314,7 @@ public class Database {
             ))
     }
 
-    public func insertVideo(_ video: Video) throws {
+    func insertVideo(_ video: Video) throws {
         try db.run(
             videoTable.insert(
                 videoTimestamp <- video.timestamp,
@@ -268,7 +323,7 @@ public class Database {
             ))
     }
 
-    public func videosBetween(minTime: Int, maxTime: Int) throws -> [Video] {
+    func videosBetween(minTime: Int, maxTime: Int) throws -> [Video] {
         var videos: [Video] = []
         let query = videoTable.filter(videoTimestamp >= minTime && videoTimestamp < maxTime)
         for row in try db.prepare(query) {
@@ -282,7 +337,7 @@ public class Database {
         return videos
     }
 
-    public func snapshotsInVideo(videoTimestamp: Int) throws -> [Snapshot] {
+    func snapshotsInVideo(videoTimestamp: Int) throws -> [Snapshot] {
         var snapshots: [Snapshot] = []
         let query = snapshotTable.filter(snapshotVideoTimestamp == videoTimestamp)
         for row in try db.prepare(query) {

@@ -18,7 +18,17 @@ func performTask(with message: XPCReceivedMessage) -> Encodable? {
 
         switch request.messageType {
         case .fetchImages:
-            print("Fetch images")
+            var encodedSnapshots: [EncodedSnapshot] = []
+            for (_, value) in data.get() {
+                encodedSnapshots.append(EncodedSnapshot(
+                    image: value.image,
+                    timestamp: value.timestamp,
+                    info: value.info,
+                    pHash: value.pHash,
+                    ocrData: value.ocrData
+                ))
+            }
+            return XPCResponse(reply: .snapshots(encodedSnapshots))
         case .controlCommand(.startRecording):
             print("Start recording")
         case .controlCommand(.pauseRecording):
@@ -26,7 +36,7 @@ func performTask(with message: XPCReceivedMessage) -> Encodable? {
         case .controlCommand(.processImages):
             print("Process images")
         case .statusQuery(.imageCount):
-            return XPCResponse(reply: .imageCount(Int.random(in: 1..<100)))
+            return XPCResponse(reply: .imageCount(data.get().count))
         case .statusQuery(.recordingStatus):
             return XPCResponse(reply: .status(Bool.random() ? .recording: .stopped))
         }

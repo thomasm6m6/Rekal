@@ -22,7 +22,7 @@ class FrameManager: ObservableObject {
                 let db = try Database()
                 let tempDir = try Files.tempDir()
                 videos = try db.videosBetween(minTime: minTimestamp, maxTime: maxTimestamp)
-                
+
                 isProcessing = true
                 defer {
                     isProcessing = false
@@ -32,19 +32,19 @@ class FrameManager: ObservableObject {
                 for video in videos {
                     var rawImages: [CGImage] = []
                     var snapshotsInVideo = try db.snapshotsInVideo(videoTimestamp: video.timestamp)
-                    
+
                     let asset = AVURLAsset(url: video.url)
                     let generator = AVAssetImageGenerator(asset: asset)
                     generator.appliesPreferredTrackTransform = true
                     generator.requestedTimeToleranceBefore = .zero
                     generator.requestedTimeToleranceAfter = .zero
-                    
+
                     do {
                         let duration = try await asset.load(.duration)
                         let times = stride(from: 1.0, to: duration.seconds, by: 1.0).map {
                             CMTime(seconds: $0, preferredTimescale: duration.timescale)
                         }
-                        
+
                         for await result in generator.images(for: times) {
                             switch result {
                             case .success(requestedTime: _, let image, actualTime: _):
@@ -58,12 +58,12 @@ class FrameManager: ObservableObject {
                     } catch {
                         print("Error loading video: \(error)")
                     }
-                    
+
                     guard snapshotsInVideo.count == rawImages.count else {
                         print("videoSnapshots.count != rawImages.count for \(video.url.path)")
                         continue
                     }
-                    
+
                     // TODO proper fuzzy search
                     for (index, image) in rawImages.enumerated() {
                         snapshotsInVideo[index].image = image
@@ -72,20 +72,20 @@ class FrameManager: ObservableObject {
                             snapshots.append(snapshotsInVideo[index])
                             continue
                         }
-                        
+
                         let info = snapshotsInVideo[index].info
                         if trimmedSearch == info.appId.lowercased() {
                             snapshots.append(snapshotsInVideo[index])
                             continue
                         }
-                        
+
                         if let name = info.appId.split(separator: ".").last,
                            trimmedSearch == name.lowercased()
                         {
                             snapshots.append(snapshotsInVideo[index])
                             continue
                         }
-                        
+
                         if trimmedSearch
                             == info.appName.lowercased().trimmingCharacters(in: .whitespaces)
                         {
@@ -112,4 +112,25 @@ class FrameManager: ObservableObject {
             index -= 1
         }
     }
+
+//    func updateOCR() {
+//        for var snapshot in snapshots {
+//            if snapshot.ocrData.count > 0 {
+//                continue
+//            }
+//            
+//            guard let image = snapshot.image else {
+//                continue
+//            }
+//            
+//            Task {
+//                do {
+//                    let result = try await performOCR(on: image)
+//                    snapshot.ocrData = result
+//                } catch {
+//                    print("OCR error: \(error)")
+//                }
+//            }
+//        }
+//    }
 }

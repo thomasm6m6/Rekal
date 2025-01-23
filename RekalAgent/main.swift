@@ -21,7 +21,7 @@ import Foundation
 
 log("Starting daemon...")
 
-let data = Data()
+let data = SnapshotData()
 let recorder = Recorder(data: data, interval: 1.0)
 
 let processor: Processor

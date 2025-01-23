@@ -1,8 +1,10 @@
 import Foundation
 import OrderedCollections
 
-actor Data {
+// TODO queue? (e.g. using GCD)
+class SnapshotData {
     private var snapshots: OrderedDictionary<Int, Snapshot> = [:] // last 5-10 min of images
+    var snapshotCount: Int = 0
 
     func get() -> OrderedDictionary<Int, Snapshot> {
         return snapshots
@@ -14,9 +16,11 @@ actor Data {
 
     func add(timestamp: Int, snapshot: Snapshot) {
         snapshots[timestamp] = snapshot
+        snapshotCount = snapshots.count
     }
 
     func remove(for timestamp: Int) {
         snapshots[timestamp] = nil
+        snapshotCount = snapshots.count
     }
 }

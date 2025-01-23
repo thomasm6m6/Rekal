@@ -1,6 +1,6 @@
 import Foundation
 import CoreGraphics
-@preconcurrency import ScreenCaptureKit // TODO probably shouldn't use preconcurrency
+import ScreenCaptureKit // TODO probably shouldn't use preconcurrency
 
 // TODO ignore incognito chrome windows by default
 // FIXME:
@@ -13,11 +13,11 @@ enum RecordingError: Error {
 }
 
 actor Recorder {
-    private let data: Data
+    private let data: SnapshotData
     private let interval: TimeInterval
     private var lastSnapshot: Snapshot? = nil
 
-    init(data: Data, interval: TimeInterval) {
+    init(data: SnapshotData, interval: TimeInterval) {
         self.data = data
         self.interval = interval
     }
@@ -32,7 +32,7 @@ actor Recorder {
             guard let snapshot = try await capture() else {
                 return
             }
-            await data.add(timestamp: snapshot.timestamp, snapshot: snapshot)
+            data.add(timestamp: snapshot.timestamp, snapshot: snapshot)
             log("Saved image")
         } catch {
             log("Did not save image: \(error)")

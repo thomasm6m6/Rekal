@@ -4,7 +4,6 @@ import CoreImage
 import Foundation
 import IOKit.ps
 import Vision
-@preconcurrency import VisionKit  // TODO probably shouldn't use preconcurrency
 
 // TODO proper queue algorithm?
 // TODO layout-aware OCR
@@ -52,11 +51,11 @@ enum ProcessingError: Error {
 }
 
 actor Processor {
-    private let data: Data
+    private let data: SnapshotData
     private let interval: Int
     private let database: Database
 
-    init(data: Data, interval: Int) throws {
+    init(data: SnapshotData, interval: Int) throws {
         self.data = data
         self.interval = interval
 
@@ -70,7 +69,7 @@ actor Processor {
     }
 
     private func saveRecords() async throws {
-        let snapshots = await data.get()
+        let snapshots = data.get()
         let appSupportDir = Files.default.appSupportDir
         let now = Int(Date().timeIntervalSince1970)
         let maxTimestamp = now / interval * interval
@@ -159,7 +158,7 @@ actor Processor {
 
             snapshot.ocrData = try await performOCR(on: image)
             try database.insertSnapshot(snapshot, videoTimestamp: binTimestamp)
-            await data.remove(for: timestamp)
+            data.remove(for: timestamp)
         }
 
         // TODO async
@@ -168,33 +167,6 @@ actor Processor {
             await mediaWriter.writer.finishWriting()
             log("Wrote \(mediaWriter.index) frames to \(mediaWriter.url.path)")
         }
-    }
-
-    private func performOCR(on image: CGImage) async throws -> String {
-        var request = RecognizeTextRequest()
-        request.automaticallyDetectsLanguage = true
-        request.usesLanguageCorrection = true
-        request.recognitionLanguages = [Locale.Language(identifier: "en-US")]
-        request.recognitionLevel = .accurate
-
-        let results = try await request.perform(on: image)
-        var data: [OCRResult] = []
-
-        for observation in results {
-            data.append(
-                OCRResult(
-                    text: observation.topCandidates(1)[0].string,
-                    normalizedRect: observation.boundingBox.cgRect,
-                    uuid: observation.uuid
-                ))
-        }
-
-        let encoder = JSONEncoder()
-        let jsonData = try encoder.encode(data)
-        guard let jsonString = String(data: jsonData, encoding: .utf8) else {
-            throw ProcessingError.error("Cannot encode OCR data as JSON")
-        }
-        return jsonString
     }
 
     private func isOnPower() -> Bool {
