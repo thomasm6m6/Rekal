@@ -48,9 +48,11 @@ enum Status: Codable {
 
 class XPCManager {
     var session: XPCSession?
-    
+
     func setup() {
-        session = try? XPCSession(machService: "com.thomasm6m6.RekalAgent.xpc")
+        if session == nil {
+            session = try? XPCSession(machService: "com.thomasm6m6.RekalAgent.xpc")
+        }
     }
 }
 

@@ -116,25 +116,4 @@ class FrameManager: ObservableObject {
             index -= 1
         }
     }
-
-//    func updateOCR() {
-//        for var snapshot in snapshots {
-//            if snapshot.ocrData.count > 0 {
-//                continue
-//            }
-//            
-//            guard let image = snapshot.image else {
-//                continue
-//            }
-//            
-//            Task {
-//                do {
-//                    let result = try await performOCR(on: image)
-//                    snapshot.ocrData = result
-//                } catch {
-//                    print("OCR error: \(error)")
-//                }
-//            }
-//        }
-//    }
 }
