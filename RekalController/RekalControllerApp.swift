@@ -2,25 +2,72 @@ import SwiftUI
 
 @main
 struct RekalControllerApp: App {
-    @State private var isRecording = true
+    @State var isRecording = true
+    @State var snapshotCount = 0
+    var xpcManager = XPCManager()
 
     var body: some Scene {
         MenuBarExtra {
-            Text("N queued snapshots")
+            Group {
+                Text("\(snapshotCount) queued snapshots")
 
-            Button(isRecording ? "Pause recording" : "Resume recording") {
-                isRecording = !isRecording
-                // TODO
+                Button("Update counter") {
+                    guard let session = xpcManager.session else {
+                        log("No XPC session")
+                        return
+                    }
+
+                    do {
+                        let request = XPCRequest(messageType: .statusQuery(.imageCount))
+                        let reply = try session.sendSync(request)
+                        let response = try reply.decode(as: XPCResponse.self)
+
+                        switch response.reply {
+                        case .imageCount(let imageCount):
+                            snapshotCount = imageCount
+                        default:
+                            break
+                        }
+                    } catch {
+                        log("Failed to send message or decode reply: \(error)")
+                    }
+                }
+
+                Button(isRecording ? "Pause recording" : "Resume recording") {
+                    isRecording = !isRecording
+                    // TODO
+                }
+
+//                Button("Update recording status") {
+//                    guard let session = xpcManager.session else {
+//                        return
+//                    }
+//
+//                    do {
+//                        let request = XPCRequest(messageType: .statusQuery(.recordingStatus))
+//                        let reply = try session.sendSync(request)
+//                        let response = try reply.decode(as: XPCResponse.self)
+//
+//                        DispatchQueue.main.async {
+//                            log("Received response with reply: \(response.reply)")
+//                        }
+//                    } catch {
+//                        log("Failed to send message or decode reply: \(error)")
+//                    }
+//                }
+
+                Button("Process now") {
+                    // TODO
+                }
+                
+                Button("Quit") {
+                    NSApplication.shared.terminate(nil)
+                    // TODO this should quit daemon and GUI too
+                }.keyboardShortcut("q")
             }
-            
-            Button("Process now") {
-                // TODO
+            .onAppear {
+                xpcManager.setup()
             }
-            
-            Button("Quit") {
-                NSApplication.shared.terminate(nil)
-                // TODO this should quit daemon and GUI too
-            }.keyboardShortcut("q")
         } label: {
             MenuBarIcon(isRecording: $isRecording)
         }
@@ -28,6 +75,7 @@ struct RekalControllerApp: App {
 }
 
 // TODO embed rotated icon as an asset
+// TODO also it's not quite centered
 struct MenuBarIcon: View {
     @Binding var isRecording: Bool
 

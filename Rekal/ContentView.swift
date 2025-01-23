@@ -1,13 +1,8 @@
 import SwiftUI
 import ServiceManagement
 
-class XPCManager {
-    var session: XPCSession?
-    
-    func setup() {
-        session = try? XPCSession(machService: "com.thomasm6m6.RekalAgent.xpc")
-    }
-}
+// TODO border around images?
+// TODO settings page
 
 class LaunchManager {
     private static let loginItemId = "com.thomasm6m6.RekalController"
@@ -156,8 +151,6 @@ struct ContentView: View {
     @State private var searchText = ""
     let xpcManager = XPCManager()
 //    @State var ocrResults: [OCRResult] = []
-    
-    @State var message = ""
 
     private let backgroundColor = Color(red: 18/256, green: 18/256, blue: 18/256) // #121212
 
@@ -168,12 +161,11 @@ struct ContentView: View {
 
             NavigationStack {
                 VStack {
-
                     Spacer()
 
                     if !frameManager.snapshots.isEmpty {
-                        let snapshot = frameManager.snapshots[frameManager.index]
-                        if let image = snapshot.image {
+                        let timestamp = frameManager.snapshots.keys[frameManager.index]
+                        if let snapshot = frameManager.snapshots[timestamp], let image = snapshot.image {
                             Image(image, scale: 1.0, label: Text("Screenshot"))
                                 .resizable()
                                 .scaledToFit()
@@ -207,52 +199,12 @@ struct ContentView: View {
                         Text("No images to display")
                     }
 
-                    Text(message)
-
                     Spacer()
 
                     Button("Unregister") {
                         _ = LaunchManager.unregisterLoginItem()
                         _ = LaunchManager.unregisterLaunchAgent()
                     }
-
-                    Button("XPC StatusQuery RecordingStatus") {
-                        guard let session = xpcManager.session else {
-                            return
-                        }
-
-                        do {
-                            let request = XPCRequest(messageType: .statusQuery(.recordingStatus))
-                            let reply = try session.sendSync(request)
-                            let response = try reply.decode(as: XPCResponse.self)
-
-                            DispatchQueue.main.async {
-                                message = "Received response with result: \(response.reply)"
-                            }
-                        } catch {
-                            message = "Failed to send message or decode reply: \(error)"
-                        }
-                    }
-
-                    Button("XPC StatusQuery ImageCount") {
-                        guard let session = xpcManager.session else {
-                            return
-                        }
-
-                        do {
-                            let request = XPCRequest(messageType: .statusQuery(.imageCount))
-                            let reply = try session.sendSync(request)
-                            let response = try reply.decode(as: XPCResponse.self)
-                            
-                            DispatchQueue.main.async {
-                                message = "Received response with result: \(response.reply)"
-                            }
-                        } catch {
-                            message = "Failed to send message or decode reply: \(error)"
-                        }
-                    }
-
-                    Spacer()
                 }
             }
             .toolbar {
@@ -283,13 +235,17 @@ struct ContentView: View {
                     .disabled(frameManager.snapshots.isEmpty)
             }
             .toolbarBackground(backgroundColor)
-            //        .toolbarColorScheme(.dark)
         }
         .onAppear {
-            _ = LaunchManager.registerLoginItem()
             _ = LaunchManager.registerLaunchAgent()
             xpcManager.setup()
+            _ = LaunchManager.registerLoginItem()
             fetchImages()
+        }
+        .onDisappear {
+            if let session = xpcManager.session {
+                session.cancel(reason: "Done")
+            }
         }
     }
 
@@ -316,37 +272,15 @@ struct ContentView: View {
                     case .snapshots(let encodedSnapshots):
                         frameManager.snapshots = decodeSnapshots(encodedSnapshots)
                     default:
-                        message = "huh?"
+                        log("TODO")
                     }
                 }
             } catch {
-                message = "Failed to send message or decode reply: \(error)"
+                log("Failed to send message or decode reply: \(error)")
             }
         }
     }
 
-    func decodeSnapshots(_ encodedSnapshots: [EncodedSnapshot]) -> [Snapshot] {
-        var snapshots: [Snapshot] = []
-        for encodedSnapshot in encodedSnapshots {
-            guard let data = encodedSnapshot.image, let provider = CGDataProvider(data: data as NSData) else { continue }
-            let cgImage = CGImage(
-                pngDataProviderSource: provider,
-                decode: nil,
-                shouldInterpolate: false,
-                intent: .defaultIntent
-            )
-
-            snapshots.append(Snapshot(
-                image: cgImage,
-                timestamp: encodedSnapshot.timestamp,
-                info: encodedSnapshot.info,
-                pHash: encodedSnapshot.pHash,
-                ocrData: encodedSnapshot.ocrData
-            ))
-        }
-        return snapshots
-    }
-    
 //    func decodeOCR(data jsonString: String) throws -> [OCRResult] {
 //        guard let jsonData = jsonString.data(using: .utf8) else {
 //            throw OCRError.error("Cannot decode json")

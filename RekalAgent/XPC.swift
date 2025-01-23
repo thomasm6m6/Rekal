@@ -18,16 +18,9 @@ func performTask(with message: XPCReceivedMessage) -> Encodable? {
 
         switch request.messageType {
         case .fetchImages:
-            var encodedSnapshots: [EncodedSnapshot] = []
-            for (_, value) in data.get() {
-                encodedSnapshots.append(EncodedSnapshot(
-                    image: value.image,
-                    timestamp: value.timestamp,
-                    info: value.info,
-                    pHash: value.pHash,
-                    ocrData: value.ocrData
-                ))
-            }
+            let now = Int(Date().timeIntervalSince1970)
+            let snapshots = data.getRange(from: now - 600, to: now)
+            let encodedSnapshots = encodeSnapshots(snapshots)
             return XPCResponse(reply: .snapshots(encodedSnapshots))
         case .controlCommand(.startRecording):
             print("Start recording")

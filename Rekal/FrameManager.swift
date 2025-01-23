@@ -1,21 +1,22 @@
 import Foundation
 import AVFoundation
+import OrderedCollections
 
 @MainActor
 class FrameManager: ObservableObject {
-    @Published var snapshots: [Snapshot] = []
-    @Published var videos: [Video] = []
+    @Published var snapshots = SnapshotDictionary()
+    @Published var videos = VideoDictionary()
     @Published var index = 0
     @Published var isProcessing = false
 
     // TODO consider whether SQL JOIN function would be useful
     func extractFrames(date: Date, search: String = "") {
-        snapshots = []
-        videos = []
+        snapshots = [:]
+        videos = [:]
         index = 0
 
         let minTimestamp = Int(Calendar.current.startOfDay(for: date).timeIntervalSince1970)
-        let maxTimestamp = minTimestamp + 86400
+        let maxTimestamp = minTimestamp + 24 * 60 * 60
 
         Task {
             do {
@@ -29,9 +30,9 @@ class FrameManager: ObservableObject {
                 }
 
                 // TODO skip as much of this process as possible according to filters
-                for video in videos {
+                for (videoTimestamp, video) in videos {
                     var rawImages: [CGImage] = []
-                    var snapshotsInVideo = try db.snapshotsInVideo(videoTimestamp: video.timestamp)
+                    let snapshotsInVideo = try db.snapshotsInVideo(videoTimestamp: videoTimestamp)
 
                     let asset = AVURLAsset(url: video.url)
                     let generator = AVAssetImageGenerator(asset: asset)
@@ -60,36 +61,39 @@ class FrameManager: ObservableObject {
                     }
 
                     guard snapshotsInVideo.count == rawImages.count else {
-                        print("videoSnapshots.count != rawImages.count for \(video.url.path)")
+                        print("snapshotsInVideo.count != rawImages.count for \(video.url.path)")
                         continue
                     }
 
                     // TODO proper fuzzy search
                     for (index, image) in rawImages.enumerated() {
-                        snapshotsInVideo[index].image = image
+                        let timestamp = snapshotsInVideo.keys[index]
+                        guard var snapshot = snapshotsInVideo[timestamp] else {
+                            continue
+                        }
+                        snapshot.image = image
+
                         let trimmedSearch = search.lowercased().trimmingCharacters(in: .whitespaces)
                         if trimmedSearch == "" {
-                            snapshots.append(snapshotsInVideo[index])
+                            snapshots[timestamp] = snapshot
                             continue
                         }
 
-                        let info = snapshotsInVideo[index].info
-                        if trimmedSearch == info.appId.lowercased() {
-                            snapshots.append(snapshotsInVideo[index])
+                        let info = snapshot.info
+                        if let appId = info.appId, trimmedSearch == appId.lowercased() {
+                            snapshots[timestamp] = snapshot
                             continue
                         }
 
-                        if let name = info.appId.split(separator: ".").last,
-                           trimmedSearch == name.lowercased()
-                        {
-                            snapshots.append(snapshotsInVideo[index])
+                        if let appId = info.appId,
+                           let name = appId.split(separator: ".").last, trimmedSearch == name.lowercased() {
+                            snapshots[timestamp] = snapshot
                             continue
                         }
 
-                        if trimmedSearch
-                            == info.appName.lowercased().trimmingCharacters(in: .whitespaces)
-                        {
-                            snapshots.append(snapshotsInVideo[index])
+                        if let appName = info.appName,
+                           trimmedSearch == appName.lowercased().trimmingCharacters(in: .whitespaces) {
+                            snapshots[timestamp] = snapshot
                             continue
                         }
                     }

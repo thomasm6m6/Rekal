@@ -2,7 +2,12 @@ import Foundation
 import CoreGraphics
 import ImageIO
 import Vision
+import OrderedCollections
 internal import SQLite
+
+typealias SnapshotDictionary = OrderedDictionary<Int, Snapshot>
+typealias VideoDictionary = OrderedDictionary<Int, Video>
+typealias EncodedSnapshotDictionary = OrderedDictionary<Int, EncodedSnapshot>
 
 struct XPCRequest: Codable {
     let messageType: MessageType
@@ -30,7 +35,7 @@ enum Query: Codable {
 }
 
 enum Reply: Codable {
-    case snapshots([EncodedSnapshot])
+    case snapshots(EncodedSnapshotDictionary)
     case status(Status)
     case imageCount(Int)
     case error(String)
@@ -41,17 +46,25 @@ enum Status: Codable {
     case stopped
 }
 
+class XPCManager {
+    var session: XPCSession?
+    
+    func setup() {
+        session = try? XPCSession(machService: "com.thomasm6m6.RekalAgent.xpc")
+    }
+}
+
 struct SnapshotInfo: Codable, Sendable {
     let windowId: Int
     let rect: CGRect
-    var windowName = ""
-    var appId = ""
-    var appName = ""
-    var url = ""
+    var windowName: String?
+    var appId: String?
+    var appName: String?
+    var url: String?
 
     init(
-        windowId: Int, rect: CGRect, windowName: String = "", appId: String = "",
-        appName: String = "", url: String = ""
+        windowId: Int, rect: CGRect, windowName: String? = nil, appId: String? = nil,
+        appName: String? = nil, url: String? = nil
     ) {
         self.windowId = windowId
         self.rect = rect
@@ -62,16 +75,57 @@ struct SnapshotInfo: Codable, Sendable {
     }
 }
 
+func encodeSnapshots(_ snapshots: SnapshotDictionary) -> EncodedSnapshotDictionary {
+    var encodedSnapshots: EncodedSnapshotDictionary = [:]
+    for (key, value) in snapshots {
+        var data: Data?
+        if let image = value.image {
+            data = image.png
+        }
+        encodedSnapshots[key] = EncodedSnapshot(
+            data: data,
+            timestamp: value.timestamp,
+            info: value.info,
+            pHash: value.pHash,
+            ocrData: value.ocrData
+        )
+    }
+    return encodedSnapshots
+}
+
+func decodeSnapshots(_ encodedSnapshots: EncodedSnapshotDictionary) -> SnapshotDictionary {
+    var snapshots: SnapshotDictionary = [:]
+    for (key, value) in encodedSnapshots {
+        var cgImage: CGImage?
+
+        if let data = value.data, let provider = CGDataProvider(data: data as NSData) {
+            cgImage = CGImage(
+                pngDataProviderSource: provider,
+                decode: nil,
+                shouldInterpolate: false,
+                intent: .defaultIntent
+            )
+        }
+
+        snapshots[key] = Snapshot(
+            image: cgImage,
+            timestamp: value.timestamp,
+            info: value.info,
+            pHash: value.pHash,
+            ocrData: value.ocrData
+        )
+    }
+    return snapshots
+}
+
 struct Snapshot: Sendable {
     var image: CGImage?
     let timestamp: Int
     let info: SnapshotInfo
     let pHash: String
-    var ocrData: String
+    var ocrData: String?
 
-    init(
-        image: CGImage?, timestamp: Int, info: SnapshotInfo, pHash: String, ocrData: String = ""
-    ) {
+    init(image: CGImage?, timestamp: Int, info: SnapshotInfo, pHash: String, ocrData: String? = nil) {
         self.image = image
         self.timestamp = timestamp
         self.info = info
@@ -81,18 +135,14 @@ struct Snapshot: Sendable {
 }
 
 struct EncodedSnapshot: Codable {
-    var image: Data?
+    var data: Data?
     let timestamp: Int
     let info: SnapshotInfo
     let pHash: String
-    let ocrData: String
+    let ocrData: String?
     
-    init(
-        image: CGImage?, timestamp: Int, info: SnapshotInfo, pHash: String, ocrData: String = ""
-    ) {
-        if let image = image {
-            self.image = image.png
-        }
+    init(data: Data?, timestamp: Int, info: SnapshotInfo, pHash: String, ocrData: String? = nil) {
+        self.data = data
         self.timestamp = timestamp
         self.info = info
         self.pHash = pHash
@@ -112,12 +162,10 @@ extension CGImage {
 
 struct Video: Sendable {
     let timestamp: Int
-    // let frameCount: Int
     let url: URL
 
     init(timestamp: Int, url: URL) {
         self.timestamp = timestamp
-        // self.frameCount = frameCount
         self.url = url
     }
 }
@@ -247,11 +295,10 @@ class Database {
     let snapshotWidth = SQLite.Expression<Int>("width")
     let snapshotHeight = SQLite.Expression<Int>("height")
     let snapshotPHash = SQLite.Expression<String>("p_hash")
-    let snapshotOCRData = SQLite.Expression<String>("ocr_data")
+    let snapshotOCRData = SQLite.Expression<String?>("ocr_data")
     let snapshotVideoTimestamp = SQLite.Expression<Int>("snapshot_video_timestamp")
 
     let videoTimestamp = SQLite.Expression<Int>("timestamp")
-    // let videoFrameCount = SQLite.Expression<Int>("frame_count")
     let videoPath = SQLite.Expression<String>("path")
 
     init() throws {
@@ -268,97 +315,93 @@ class Database {
     }
 
     func createSnapshotTable() throws {
-        try db.run(
-            snapshotTable.create(ifNotExists: true) { t in
-                t.column(snapshotTimestamp, primaryKey: true)
-                t.column(snapshotWindowID)
-                t.column(snapshotWindowName)
-                t.column(snapshotAppID)
-                t.column(snapshotAppName)
-                t.column(snapshotURL)
-                t.column(snapshotX)
-                t.column(snapshotY)
-                t.column(snapshotWidth)
-                t.column(snapshotHeight)
-                t.column(snapshotPHash)
-                t.column(snapshotOCRData)
-                t.column(snapshotVideoTimestamp, references: videoTable, videoTimestamp)
-            })
+        try db.run(snapshotTable.create(ifNotExists: true) { t in
+            t.column(snapshotTimestamp, primaryKey: true)
+            t.column(snapshotWindowID)
+            t.column(snapshotWindowName)
+            t.column(snapshotAppID)
+            t.column(snapshotAppName)
+            t.column(snapshotURL)
+            t.column(snapshotX)
+            t.column(snapshotY)
+            t.column(snapshotWidth)
+            t.column(snapshotHeight)
+            t.column(snapshotPHash)
+            t.column(snapshotOCRData)
+            t.column(snapshotVideoTimestamp, references: videoTable, videoTimestamp)
+        })
     }
 
     func createVideoTable() throws {
-        try db.run(
-            videoTable.create(ifNotExists: true) { t in
-                t.column(videoTimestamp, primaryKey: true)
-                // t.column(videoFrameCount)
-                t.column(videoPath, unique: true)
-            })
+        try db.run(videoTable.create(ifNotExists: true) { t in
+            t.column(videoTimestamp, primaryKey: true)
+            t.column(videoPath, unique: true)
+        })
     }
 
     func insertSnapshot(_ snapshot: Snapshot, videoTimestamp: Int) throws {
-        try db.run(
-            snapshotTable.insert(
-                snapshotTimestamp <- snapshot.timestamp,
-                snapshotWindowID <- snapshot.info.windowId,
-                snapshotWindowName <- snapshot.info.windowName,
-                snapshotAppID <- snapshot.info.appId,
-                snapshotAppName <- snapshot.info.appName,
-                snapshotURL <- snapshot.info.url,
-                snapshotX <- Int(snapshot.info.rect.minX),
-                snapshotY <- Int(snapshot.info.rect.minY),
-                snapshotWidth <- Int(snapshot.info.rect.width),
-                snapshotHeight <- Int(snapshot.info.rect.height),
-                snapshotPHash <- snapshot.pHash,
-                snapshotOCRData <- snapshot.ocrData,
-                snapshotVideoTimestamp <- videoTimestamp
-            ))
+        try db.run(snapshotTable.insert(
+            snapshotTimestamp <- snapshot.timestamp,
+            snapshotWindowID <- snapshot.info.windowId,
+            snapshotWindowName <- snapshot.info.windowName,
+            snapshotAppID <- snapshot.info.appId,
+            snapshotAppName <- snapshot.info.appName,
+            snapshotURL <- snapshot.info.url,
+            snapshotX <- Int(snapshot.info.rect.minX),
+            snapshotY <- Int(snapshot.info.rect.minY),
+            snapshotWidth <- Int(snapshot.info.rect.width),
+            snapshotHeight <- Int(snapshot.info.rect.height),
+            snapshotPHash <- snapshot.pHash,
+            snapshotOCRData <- snapshot.ocrData,
+            snapshotVideoTimestamp <- videoTimestamp
+        ))
     }
 
     func insertVideo(_ video: Video) throws {
-        try db.run(
-            videoTable.insert(
-                videoTimestamp <- video.timestamp,
-                // videoFrameCount <- video.frameCount,
-                videoPath <- video.url.path
-            ))
+        try db.run(videoTable.insert(
+            videoTimestamp <- video.timestamp,
+            videoPath <- video.url.path
+        ))
     }
 
-    func videosBetween(minTime: Int, maxTime: Int) throws -> [Video] {
-        var videos: [Video] = []
+    func videosBetween(minTime: Int, maxTime: Int) throws -> VideoDictionary {
+        var videos = VideoDictionary()
         let query = videoTable.filter(videoTimestamp >= minTime && videoTimestamp < maxTime)
         for row in try db.prepare(query) {
-            videos.append(
-                Video(
-                    timestamp: row[videoTimestamp],
-                    // frameCount: row[videoFrameCount],
-                    url: URL(filePath: row[videoPath])
-                ))
+            let timestamp = row[videoTimestamp]
+            videos[timestamp] = Video(
+                timestamp: timestamp,
+                url: URL(filePath: row[videoPath])
+            )
         }
         return videos
     }
 
-    func snapshotsInVideo(videoTimestamp: Int) throws -> [Snapshot] {
-        var snapshots: [Snapshot] = []
+    func snapshotsInVideo(videoTimestamp: Int) throws -> SnapshotDictionary {
+        var snapshots = SnapshotDictionary()
         let query = snapshotTable.filter(snapshotVideoTimestamp == videoTimestamp)
         for row in try db.prepare(query) {
+            let timestamp = row[snapshotTimestamp]
             let info = SnapshotInfo(
                 windowId: row[snapshotWindowID],
                 rect: CGRect(
-                    x: row[snapshotX], y: row[snapshotY], width: row[snapshotWidth],
+                    x: row[snapshotX],
+                    y: row[snapshotY],
+                    width: row[snapshotWidth],
                     height: row[snapshotHeight]),
-                windowName: row[snapshotWindowName] ?? "",
-                appId: row[snapshotAppID] ?? "",
-                appName: row[snapshotAppName] ?? "",
-                url: row[snapshotURL] ?? ""
+                windowName: row[snapshotWindowName],
+                appId: row[snapshotAppID],
+                appName: row[snapshotAppName],
+                url: row[snapshotURL]
             )
-            snapshots.append(
-                Snapshot(
-                    image: nil,
-                    timestamp: row[snapshotTimestamp],
-                    info: info,
-                    pHash: row[snapshotPHash],
-                    ocrData: row[snapshotOCRData]
-                ))
+
+            snapshots[timestamp] = Snapshot(
+                image: nil,
+                timestamp: timestamp,
+                info: info,
+                pHash: row[snapshotPHash],
+                ocrData: row[snapshotOCRData]
+            )
         }
 
         return snapshots

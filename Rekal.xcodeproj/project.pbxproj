@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		9258E2472D4200010099ABB8 /* OrderedCollections in Frameworks */ = {isa = PBXBuildFile; productRef = 9258E2462D4200010099ABB8 /* OrderedCollections */; };
+		9258E2482D420A500099ABB8 /* Shared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925D41B82D3F7A0D00690B22 /* Shared.swift */; };
+		9258E24A2D420AC50099ABB8 /* OrderedCollections in Frameworks */ = {isa = PBXBuildFile; productRef = 9258E2492D420AC50099ABB8 /* OrderedCollections */; };
+		9258E24C2D420ACD0099ABB8 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 9258E24B2D420ACD0099ABB8 /* SQLite */; };
 		925D41BB2D3F7AD800690B22 /* Shared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925D41B82D3F7A0D00690B22 /* Shared.swift */; };
 		925D41BD2D3F7B2400690B22 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 925D41BC2D3F7B2400690B22 /* SQLite */; };
 		925D41D52D3F840A00690B22 /* OrderedCollections in Frameworks */ = {isa = PBXBuildFile; productRef = 925D41D42D3F840A00690B22 /* OrderedCollections */; };
@@ -104,6 +108,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9258E2472D4200010099ABB8 /* OrderedCollections in Frameworks */,
 				925D41BD2D3F7B2400690B22 /* SQLite in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -112,6 +117,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9258E24C2D420ACD0099ABB8 /* SQLite in Frameworks */,
+				9258E24A2D420AC50099ABB8 /* OrderedCollections in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -190,6 +197,7 @@
 			name = Rekal;
 			packageProductDependencies = (
 				925D41BC2D3F7B2400690B22 /* SQLite */,
+				9258E2462D4200010099ABB8 /* OrderedCollections */,
 			);
 			productName = Rekal;
 			productReference = 925D40972D3EDDC200690B22 /* Rekal.app */;
@@ -212,6 +220,8 @@
 			);
 			name = RekalController;
 			packageProductDependencies = (
+				9258E2492D420AC50099ABB8 /* OrderedCollections */,
+				9258E24B2D420ACD0099ABB8 /* SQLite */,
 			);
 			productName = RekalController;
 			productReference = 925D41002D3EFBCF00690B22 /* RekalController.app */;
@@ -318,6 +328,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				9258E2482D420A500099ABB8 /* Shared.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -667,6 +678,21 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		9258E2462D4200010099ABB8 /* OrderedCollections */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 925D41D32D3F840A00690B22 /* XCRemoteSwiftPackageReference "swift-collections" */;
+			productName = OrderedCollections;
+		};
+		9258E2492D420AC50099ABB8 /* OrderedCollections */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 925D41D32D3F840A00690B22 /* XCRemoteSwiftPackageReference "swift-collections" */;
+			productName = OrderedCollections;
+		};
+		9258E24B2D420ACD0099ABB8 /* SQLite */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 925D40E52D3EE0FF00690B22 /* XCRemoteSwiftPackageReference "SQLite" */;
+			productName = SQLite;
+		};
 		925D41BC2D3F7B2400690B22 /* SQLite */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 925D40E52D3EE0FF00690B22 /* XCRemoteSwiftPackageReference "SQLite" */;
