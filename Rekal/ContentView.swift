@@ -106,6 +106,7 @@ struct ContentView: View {
                     switch response.reply {
                     case .snapshots(let encodedSnapshots):
                         frameManager.snapshots = decodeSnapshots(encodedSnapshots)
+                        log("here")
                     default:
                         log("TODO")
                     }
@@ -113,12 +114,16 @@ struct ContentView: View {
             } catch {
                 log("Failed to send message or decode reply: \(error)")
             }
+        } else {
+            log("No XPC session")
         }
     }
 }
 
 struct ImageView: View {
-    var frameManager: FrameManager
+//    @StateObject var frameManager: FrameManager
+    @StateObject var frameManager: FrameManager
+//    @State var message = ""
 
     var body: some View {
         VStack {
@@ -136,15 +141,20 @@ struct ImageView: View {
                 }
             } else {
                 Text("No images to display")
+//                Text(message)
+//                Button("Update count") {
+//                    message = String(frameManager.snapshots.count)
+//                }
             }
 
             Spacer()
+//            Text(message)
         }
     }
 }
 
 struct Toolbar: View {
-    var frameManager: FrameManager
+    @StateObject var frameManager: FrameManager
     @State private var searchText = ""
 
     var body: some View {
@@ -156,9 +166,9 @@ struct Toolbar: View {
         
         Text("\(frameManager.snapshots.count == 0 ? 0 : frameManager.index + 1)/\(frameManager.snapshots.count)")
             .font(.system(.body, design: .monospaced))
-        
+
         Spacer()
-        
+
         // FIXME doesn't appear in overflow menu
         // FIXME not centered
         // FIXME styling is hacky
@@ -168,18 +178,21 @@ struct Toolbar: View {
         //                    .background(.red.opacity(0.5))
         //                    .clipShape(RoundedRectangle(cornerRadius: 6))
             .frame(width: 300)
-        
+            .onSubmit {
+                frameManager.extractFrames(query: searchText)
+            }
+
         Spacer()
-        
+
         Button("Unregister") {
             _ = LaunchManager.unregisterLaunchAgent()
             _ = LaunchManager.unregisterLoginItem()
         }
-        
+
         Button("Process now") {
             //
         }
-        
+
         Button("Info", systemImage: "info.circle", action: showInfo)
             .disabled(frameManager.snapshots.isEmpty)
     }

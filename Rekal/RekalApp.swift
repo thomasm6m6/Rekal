@@ -11,7 +11,7 @@ struct RekalApp: App {
     var xpcManager = XPCManager()
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: "main-window") {
             ContentView(xpcManager: xpcManager)
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
                     if let session = xpcManager.session {
@@ -32,10 +32,8 @@ struct RekalApp: App {
                 isRecording = !isRecording
                 // TODO
             }
-            
-            Button("Open Rekal") {
-                // TODO
-            }
+
+            OpenWindowButton()
 
             Button("Quit") {
                 NSApplication.shared.terminate(nil)
@@ -43,6 +41,16 @@ struct RekalApp: App {
             }.keyboardShortcut("q")
         } label: {
             MenuBarIcon(isRecording: $isRecording)
+        }
+    }
+}
+
+struct OpenWindowButton: View {
+    @Environment(\.openWindow) private var openWindow
+    
+    var body: some View {
+        Button("Open Rekal") {
+            openWindow(id: "main-window")
         }
     }
 }
