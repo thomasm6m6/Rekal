@@ -3,6 +3,8 @@ import SwiftUI
 // Should RekalController and RekalAgent be added as build deps of Rekal?
 // TODO search bar doesn't show in overflow menu when window width is small
 // TODO settings for menu bar item
+// TODO want to capture even more images (missed an image I wanted), write only
+// a subset to mp4 (ie using a higher similarity threshold)
 
 @main
 struct RekalApp: App {

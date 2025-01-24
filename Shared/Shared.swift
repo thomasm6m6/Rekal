@@ -5,9 +5,9 @@ import Vision
 import OrderedCollections
 internal import SQLite
 
-typealias SnapshotDictionary = OrderedDictionary<Int, Snapshot>
-typealias VideoDictionary = OrderedDictionary<Int, Video>
-typealias EncodedSnapshotDictionary = OrderedDictionary<Int, EncodedSnapshot>
+typealias SnapshotList = OrderedDictionary<Int, Snapshot>
+typealias VideoList = OrderedDictionary<Int, Video>
+typealias EncodedSnapshotList = OrderedDictionary<Int, EncodedSnapshot>
 
 struct XPCRequest: Codable {
     let messageType: MessageType
@@ -35,7 +35,7 @@ enum Query: Codable {
 }
 
 enum Reply: Codable {
-    case snapshots(EncodedSnapshotDictionary)
+    case snapshots(EncodedSnapshotList)
     case status(Status)
     case imageCount(Int)
     case error(String)
@@ -77,8 +77,8 @@ struct SnapshotInfo: Codable, Sendable {
     }
 }
 
-func encodeSnapshots(_ snapshots: SnapshotDictionary) -> EncodedSnapshotDictionary {
-    var encodedSnapshots: EncodedSnapshotDictionary = [:]
+func encodeSnapshots(_ snapshots: SnapshotList) -> EncodedSnapshotList {
+    var encodedSnapshots: EncodedSnapshotList = [:]
     for (key, value) in snapshots {
         var data: Data?
         if let image = value.image {
@@ -95,8 +95,8 @@ func encodeSnapshots(_ snapshots: SnapshotDictionary) -> EncodedSnapshotDictiona
     return encodedSnapshots
 }
 
-func decodeSnapshots(_ encodedSnapshots: EncodedSnapshotDictionary) -> SnapshotDictionary {
-    var snapshots: SnapshotDictionary = [:]
+func decodeSnapshots(_ encodedSnapshots: EncodedSnapshotList) -> SnapshotList {
+    var snapshots: SnapshotList = [:]
     for (key, value) in encodedSnapshots {
         var cgImage: CGImage?
 
@@ -366,8 +366,8 @@ class Database {
         ))
     }
 
-    func videosBetween(minTime: Int, maxTime: Int) throws -> VideoDictionary {
-        var videos = VideoDictionary()
+    func videosBetween(minTime: Int, maxTime: Int) throws -> VideoList {
+        var videos = VideoList()
         let query = videoTable.filter(videoTimestamp >= minTime && videoTimestamp < maxTime)
         for row in try db.prepare(query) {
             let timestamp = row[videoTimestamp]
@@ -379,8 +379,8 @@ class Database {
         return videos
     }
 
-    func snapshotsInVideo(videoTimestamp: Int) throws -> SnapshotDictionary {
-        var snapshots = SnapshotDictionary()
+    func snapshotsInVideo(videoTimestamp: Int) throws -> SnapshotList {
+        var snapshots = SnapshotList()
         let query = snapshotTable.filter(snapshotVideoTimestamp == videoTimestamp)
         for row in try db.prepare(query) {
             let timestamp = row[snapshotTimestamp]

@@ -10,8 +10,8 @@ struct Search {
 
 @MainActor
 class FrameManager: ObservableObject {
-    @Published var snapshots = SnapshotDictionary()
-    @Published var videos = VideoDictionary()
+    @Published var snapshots = SnapshotList()
+    @Published var videos = VideoList()
     @Published var index = 0
     @Published var isProcessing = false
     var matchOCR = false
@@ -177,86 +177,6 @@ class FrameManager: ObservableObject {
     // TODO handle quotes and such
     // if a value is quoted, don't parse it as a date and do match case(?)
     func queryMatches(terms: [String], snapshot: Snapshot, matchOCR: Bool) -> Bool {
-//        var query = query.lowercased()
-
-//        let dayOfWeek = Regex("sunday | sun | monday | mon | tuesday | tue | wednesday | wed | thursday | thur | thu | friday | fri")
-//        let textDate = Regex("\d\d? $month $year | $month \d\d? $year | $year")
-//        let numericDatae = Regex("\d{4}-\d{2}-\d{2} | \d{4}/\d{2}/\d{2} | \d{2}-\d{2}-\d{4} | \d{2}/\d{2}/\d{4}")
-//        let date = Regex("today | yesterday | 1 day ago | \d+ days ago | $dayOfWeek | $textDate | $numericDate")
-        
-//        let dayOfWeekRegexStr = #"(today|yesterday|sunday|monday|tuesday|wednesday|thursday|friday|saturday|sunday)"#
-//        let dateRegexStr = dayOfWeekRegexStr + #"|\d{4}-\d{2}-\d{2}"#
-
-//        var searchTerms: [String] = []
-//        var fromDate = Date()
-//        let toDate = Date()
-//        for term in queryTerms {
-//            if term == "today" {
-//                //
-//            } else if term == "yesterday" {
-//                //
-//            } else if term == "sunday" || term == "sun" {
-//                //
-//            } else if term == "monday" || term == "mon" {
-//                //
-//            } else if term == "tuesday" || term == "tue" {
-//                //
-//            } else if term == "wednesday" || term == "wed" {
-//                //
-//            } else if term == "thursday" || term == "thur" || term == "thu" {
-//                //
-//            } else if term == "friday" || term == "fri" {
-//                //
-//            } else if term == "saturday" || term == "sat" {
-//                //
-//            } else if term == "january" || term == "jan" {
-//                //
-//            } else if term == "february" || term == "feb" {
-//                //
-//            } else if term == "march" || term == "mar" {
-//                //
-//            } else if term == "april" || term == "apr" {
-//                //
-//            } else if term == "may" {
-//                //
-//            } else if term == "june" || term == "jun" {
-//                //
-//            } else if term == "july" || term == "jul" {
-//                //
-//            } else if term == "august" || term == "aug" {
-//                //
-//            } else if term == "september" || term == "sep" {
-//                //
-//            } else if term == "october" || term == "oct" {
-//                //
-//            } else if term == "november" || term == "nov" {
-//                //
-//            } else if term == "december" || term == "dec" {
-//                //
-//            } else if let _ = try? /\d{4}\/\d{2}\/\d{2}/.wholeMatch(in: term) {
-//                //
-//            } else if let _ = try? /\d{4}-\d{2}-\d{2}/.wholeMatch(in: term) {
-//                //
-//            } else if let _ = try? /\d{2}\/\d{2}\/\d{4}/.wholeMatch(in: term) {
-//                //
-//            } else if let _ = try? /\d{2}-\d{2}-\d{4}/.wholeMatch(in: term) {
-//                //
-//            } else if let _ = try? /\d{2}\/\d{2}\/\d{2}/.wholeMatch(in: term) {
-//                //
-//            } else if let _ = try? /\d{2}-\d{2}-\d{2}/.wholeMatch(in: term) {
-//                //
-//            } else if let _ = try? /\d\d?:\d\d/.wholeMatch(in: term) {
-//                //
-//            } else if let num = Int(term), num > 0 && num < 31 {
-//                // TODO check this, more precisely, after we hopefully know the month/year
-//                // and based on saved snapshot data, maybe
-//            } else if let num = Int(term), num > 2025 && num < 2125 {
-//                // TODO check based on what snapshot data is actually saved
-//            } else {
-//                searchTerms.append(term)
-//            }
-//        }
-
         let info = snapshot.info
 
         if let appId = info.appId {

@@ -1,8 +1,10 @@
 import SwiftUI
+import Vision
 import ServiceManagement
 
 // TODO border around images?
 // TODO settings page
+// TODO make "open rekal" function properly
 
 class LaunchManager {
     private static let launchAgentPlist = "com.thomasm6m6.RekalAgent.plist"
@@ -69,8 +71,9 @@ class LaunchManager {
 struct ContentView: View {
     @StateObject private var frameManager = FrameManager()
     @State private var selectedDate = Date()
+//    @State private var showOCRView = false
     var xpcManager: XPCManager
-    
+
     private let backgroundColor = Color(red: 18/256, green: 18/256, blue: 18/256) // #121212
 
     var body: some View {
@@ -106,7 +109,6 @@ struct ContentView: View {
                     switch response.reply {
                     case .snapshots(let encodedSnapshots):
                         frameManager.snapshots = decodeSnapshots(encodedSnapshots)
-                        log("here")
                     default:
                         log("TODO")
                     }
@@ -121,9 +123,9 @@ struct ContentView: View {
 }
 
 struct ImageView: View {
-//    @StateObject var frameManager: FrameManager
     @StateObject var frameManager: FrameManager
-//    @State var message = ""
+    @State private var showOCRView = false
+    @State private var delayTask: Task<Void, Never>?
 
     var body: some View {
         VStack {
@@ -136,19 +138,102 @@ struct ImageView: View {
                     Image(image, scale: 1.0, label: Text("Screenshot"))
                         .resizable()
                         .scaledToFit()
+                        .onChange(of: image, initial: true) {
+                            showOCRView = false
+                            delayTask?.cancel()
+
+                            delayTask = Task {
+                                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                                if !Task.isCancelled {
+                                    showOCRView = true
+                                }
+                            }
+                        }
+                        .overlay {
+                            if showOCRView {
+                                OCRView(snapshot: snapshot)
+                            }
+                        }
                 } else {
                     Text("Failed to get the image")
                 }
             } else {
                 Text("No images to display")
-//                Text(message)
-//                Button("Update count") {
-//                    message = String(frameManager.snapshots.count)
-//                }
             }
 
             Spacer()
-//            Text(message)
+        }
+    }
+}
+
+struct OCRView: View {
+    @State private var isSelected = false
+    @State private var isHovering = false
+    @State private var ocrResults: [OCRResult]? = nil
+    var snapshot: Snapshot
+
+    var body: some View {
+        if let ocrResults = ocrResults {
+            ForEach(ocrResults, id: \.uuid) { result in
+                GeometryReader { geometry in
+                    let boundingBox = NormalizedRect(normalizedRect: result.normalizedRect)
+                    let rect = boundingBox.toImageCoordinates(geometry.size, origin: .upperLeft)
+                    Rectangle()
+                        .fill(isSelected ? .green : .blue)
+                        .contentShape(Rectangle())
+                        .frame(width: rect.width, height: rect.height)
+                        .offset(x: rect.minX, y: rect.minY)
+                        .onTapGesture(count: 2) {
+                            isSelected = true
+                        }
+                        .onTapGesture(count: 1) {
+                            isSelected = false
+                        }
+                        .onHover { hovering in
+                            isHovering = hovering
+                            if hovering {
+                                NSCursor.iBeam.push()
+                            } else {
+                                NSCursor.pop()
+                            }
+                        }
+                }
+            }
+        }
+        // Without this, nothing appears until ocrResults != nil,
+        // but ocrResults == nil until something appears
+        // TODO there must be a better solution
+        Rectangle()
+            .frame(width: 0, height: 0)
+            .onAppear {
+                loadOCRResults(snapshot: snapshot)
+            }
+    }
+
+    // TODO save OCR data to daemon memory space
+    func loadOCRResults(snapshot: Snapshot) {
+        Task {
+            do {
+                var ocrData: String?
+
+                if snapshot.ocrData == nil {
+                    if let image = snapshot.image {
+                        ocrData = try await performOCR(on: image)
+                    }
+                } else {
+                    ocrData = snapshot.ocrData
+                }
+
+                if let ocrData = ocrData, let jsonData = ocrData.data(using: .utf8) {
+                    let decoder = JSONDecoder()
+                    let results = try decoder.decode([OCRResult].self, from: jsonData)
+                    await MainActor.run {
+                        ocrResults = results
+                    }
+                }
+            } catch {
+                log("OCR failed: \(error)")
+            }
         }
     }
 }
@@ -160,10 +245,10 @@ struct Toolbar: View {
     var body: some View {
         Button("Previous", systemImage: "chevron.left", action: previousImage)
             .disabled(frameManager.snapshots.isEmpty || frameManager.index < 1)
-        
+
         Button("Next", systemImage: "chevron.right", action: nextImage)
-            .disabled(frameManager.snapshots.isEmpty || frameManager.index >= frameManager.snapshots.count)
-        
+            .disabled(frameManager.snapshots.isEmpty || frameManager.index >= frameManager.snapshots.count-1)
+
         Text("\(frameManager.snapshots.count == 0 ? 0 : frameManager.index + 1)/\(frameManager.snapshots.count)")
             .font(.system(.body, design: .monospaced))
 

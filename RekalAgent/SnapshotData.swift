@@ -4,10 +4,10 @@ import OrderedCollections
 
 // TODO queue? (e.g. using GCD)
 class SnapshotData {
-    private var snapshots = SnapshotDictionary() // last 5-10 min of images
+    private var snapshots = SnapshotList() // last 5-10 min of images
 
     // TODO use e.g. private(set) instead of a getter method
-    func get() -> SnapshotDictionary {
+    func get() -> SnapshotList {
         return snapshots
     }
 
@@ -15,7 +15,7 @@ class SnapshotData {
         return snapshots[key]
     }
     
-    func getRange(from: Int, to: Int) -> SnapshotDictionary {
+    func getRange(from: Int, to: Int) -> SnapshotList {
         return snapshots.filter {
             $0.key > from && $0.key < to
         }
