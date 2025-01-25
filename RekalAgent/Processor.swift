@@ -64,25 +64,25 @@ actor Processor {
         self.database = try Database()
     }
 
-    func process() async throws {
-        try await saveRecords()
+    func process(now: Bool = false) async throws {
+        try await saveRecords(force: now)
     }
 
-    private func saveRecords() async throws {
+    private func saveRecords(force: Bool) async throws {
         let snapshots = data.get()
         let appSupportDir = Files.default.appSupportDir
-        let now = Int(Date().timeIntervalSince1970)
+        let now = Int(Date.now.timeIntervalSince1970)
         let maxTimestamp = now / interval * interval
 
         log("Processing \(snapshots.count) snapshots...")
 
-        guard isOnPower() else {
-            log("Device is using battery power; delaying processing")
+        guard force || isOnPower() else {
+            log("Device is on battery power; delaying processing")
             return
         }
 
         guard let firstSnapshot = snapshots.values.first,
-            let firstImage = firstSnapshot.image
+              let firstImage = firstSnapshot.image
         else {
             log("No snapshots to encode")
             return

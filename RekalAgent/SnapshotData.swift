@@ -14,11 +14,17 @@ class SnapshotData {
     func get(key: Int) -> Snapshot? {
         return snapshots[key]
     }
-    
+
     func getRange(from: Int, to: Int) -> SnapshotList {
         return snapshots.filter {
             $0.key > from && $0.key < to
         }
+    }
+
+    func getRecent() -> SnapshotList {
+        // TODO test whether this is fast at 600
+        let keys = snapshots.keys.suffix(600)
+        return keys.reduce(into: [:]) { $0[$1] = snapshots[$1] }
     }
 
     func add(timestamp: Int, snapshot: Snapshot) {

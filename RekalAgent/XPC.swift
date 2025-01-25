@@ -18,8 +18,9 @@ func performTask(with message: XPCReceivedMessage) -> Encodable? {
 
         switch request.messageType {
         case .fetchImages:
-            let now = Int(Date().timeIntervalSince1970)
-            let snapshots = data.getRange(from: now - 600, to: now)
+//            let now = Int(Date().timeIntervalSince1970)
+//            let snapshots = data.getRange(from: now - 600, to: now)
+            let snapshots = data.getRecent()
             let encodedSnapshots = encodeSnapshots(snapshots)
             return XPCResponse(reply: .snapshots(encodedSnapshots))
         case .controlCommand(.startRecording):
@@ -27,7 +28,20 @@ func performTask(with message: XPCReceivedMessage) -> Encodable? {
         case .controlCommand(.pauseRecording):
             print("Stop recording")
         case .controlCommand(.processImages):
-            print("Process images")
+            let semaphore = DispatchSemaphore(value: 0)
+            var result = XPCResponse(reply: .error("Unknown error processing"))
+
+            Task {
+                do {
+                    try await processor.process()
+                    result = XPCResponse(reply: .didProcess)
+                } catch {
+                    result = XPCResponse(reply: .error("Processing failed: \(error)"))
+                }
+                semaphore.signal()
+            }
+            semaphore.wait()
+            return result
         case .statusQuery(.imageCount):
             return XPCResponse(reply: .imageCount(data.get().count))
         case .statusQuery(.recordingStatus):

@@ -38,6 +38,7 @@ enum Reply: Codable {
     case snapshots(EncodedSnapshotList)
     case status(Status)
     case imageCount(Int)
+    case didProcess
     case error(String)
 }
 
@@ -407,5 +408,29 @@ class Database {
         }
 
         return snapshots
+    }
+    
+    func getAppList() throws -> ([String], [String]) {
+        var appIds: [String] = []
+        var appNames: [String] = []
+        for row in try db.prepare(snapshotTable) {
+            let appId = row[snapshotAppID]
+            let appName = row[snapshotAppName]
+
+            guard var appId = appId, var appName = appName else {
+                continue
+            }
+            appId = appId.lowercased()
+            appName = appName.lowercased()
+
+            if !appIds.contains(appId) {
+                appIds.append(appId)
+            }
+            if !appNames.contains(appName) {
+                appNames.append(appName)
+            }
+        }
+
+        return (appIds, appNames)
     }
 }

@@ -19,6 +19,28 @@ import Foundation
 //
 // TODO figure out logging
 
+func log2(_ message: String) {
+    let fileURL = URL(fileURLWithPath: "/tmp/a.log")
+    
+    do {
+        // Check if file exists; if it does, append, otherwise create a new file
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            // Append the message to the file
+            let fileHandle = try FileHandle(forWritingTo: fileURL)
+            fileHandle.seekToEndOfFile()
+            if let data = (message + "\n").data(using: .utf8) {
+                fileHandle.write(data)
+            }
+            fileHandle.closeFile()
+        } else {
+            // Create a new file and write the message
+            try (message + "\n").write(to: fileURL, atomically: true, encoding: .utf8)
+        }
+    } catch {
+        print("Error writing to file: \(error)")
+    }
+}
+
 log("Starting daemon...")
 
 let data = SnapshotData()

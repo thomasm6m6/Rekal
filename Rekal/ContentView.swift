@@ -5,6 +5,7 @@ import ServiceManagement
 // TODO border around images?
 // TODO settings page
 // TODO make "open rekal" function properly
+// TODO cmd+f or "/" to focus search
 
 class LaunchManager {
     private static let launchAgentPlist = "com.thomasm6m6.RekalAgent.plist"
@@ -71,7 +72,6 @@ class LaunchManager {
 struct ContentView: View {
     @StateObject private var frameManager = FrameManager()
     @State private var selectedDate = Date()
-//    @State private var showOCRView = false
     var xpcManager: XPCManager
 
     private let backgroundColor = Color(red: 18/256, green: 18/256, blue: 18/256) // #121212
@@ -85,7 +85,7 @@ struct ContentView: View {
                 ImageView(frameManager: frameManager)
             }
             .toolbar {
-                Toolbar(frameManager: frameManager)
+                Toolbar(frameManager: frameManager, xpcManager: xpcManager)
             }
             .toolbarBackground(backgroundColor)
         }
@@ -99,6 +99,7 @@ struct ContentView: View {
     }
 
     func fetchImages() {
+        // TODO fetch all(?) the in-memory images, asynchronously
         if let session = xpcManager.session {
             do {
                 let request = XPCRequest(messageType: .fetchImages)
@@ -166,81 +167,12 @@ struct ImageView: View {
     }
 }
 
-struct OCRView: View {
-    @State private var isSelected = false
-    @State private var isHovering = false
-    @State private var ocrResults: [OCRResult]? = nil
-    var snapshot: Snapshot
-
-    var body: some View {
-        if let ocrResults = ocrResults {
-            ForEach(ocrResults, id: \.uuid) { result in
-                GeometryReader { geometry in
-                    let boundingBox = NormalizedRect(normalizedRect: result.normalizedRect)
-                    let rect = boundingBox.toImageCoordinates(geometry.size, origin: .upperLeft)
-                    Rectangle()
-                        .fill(isSelected ? .green : .blue)
-                        .contentShape(Rectangle())
-                        .frame(width: rect.width, height: rect.height)
-                        .offset(x: rect.minX, y: rect.minY)
-                        .onTapGesture(count: 2) {
-                            isSelected = true
-                        }
-                        .onTapGesture(count: 1) {
-                            isSelected = false
-                        }
-                        .onHover { hovering in
-                            isHovering = hovering
-                            if hovering {
-                                NSCursor.iBeam.push()
-                            } else {
-                                NSCursor.pop()
-                            }
-                        }
-                }
-            }
-        }
-        // Without this, nothing appears until ocrResults != nil,
-        // but ocrResults == nil until something appears
-        // TODO there must be a better solution
-        Rectangle()
-            .frame(width: 0, height: 0)
-            .onAppear {
-                loadOCRResults(snapshot: snapshot)
-            }
-    }
-
-    // TODO save OCR data to daemon memory space
-    func loadOCRResults(snapshot: Snapshot) {
-        Task {
-            do {
-                var ocrData: String?
-
-                if snapshot.ocrData == nil {
-                    if let image = snapshot.image {
-                        ocrData = try await performOCR(on: image)
-                    }
-                } else {
-                    ocrData = snapshot.ocrData
-                }
-
-                if let ocrData = ocrData, let jsonData = ocrData.data(using: .utf8) {
-                    let decoder = JSONDecoder()
-                    let results = try decoder.decode([OCRResult].self, from: jsonData)
-                    await MainActor.run {
-                        ocrResults = results
-                    }
-                }
-            } catch {
-                log("OCR failed: \(error)")
-            }
-        }
-    }
-}
-
 struct Toolbar: View {
     @StateObject var frameManager: FrameManager
     @State private var searchText = ""
+    @State private var isShowingPopover = false
+    @State private var fullTextSearch = false
+    var xpcManager: XPCManager
 
     var body: some View {
         Button("Previous", systemImage: "chevron.left", action: previousImage)
@@ -254,6 +186,8 @@ struct Toolbar: View {
 
         Spacer()
 
+        // TODO abstract into Settings struct
+
         // FIXME doesn't appear in overflow menu
         // FIXME not centered
         // FIXME styling is hacky
@@ -264,8 +198,21 @@ struct Toolbar: View {
         //                    .clipShape(RoundedRectangle(cornerRadius: 6))
             .frame(width: 300)
             .onSubmit {
-                frameManager.extractFrames(query: searchText)
+                let options = SearchOptions(
+                    fullText: fullTextSearch
+                )
+                frameManager.extractFrames(search: searchText, options: options)
             }
+
+        Button("Search options", systemImage: "slider.horizontal.3") {
+            isShowingPopover = true
+        }
+        .popover(isPresented: $isShowingPopover, arrowEdge: .bottom) {
+            Toggle(isOn: $fullTextSearch) {
+                Text("Full-text search")
+            }
+            .padding()
+        }
 
         Spacer()
 
@@ -275,7 +222,31 @@ struct Toolbar: View {
         }
 
         Button("Process now") {
-            //
+            // TODO fetch all(?) the in-memory images, asynchronously
+            if let session = xpcManager.session {
+                do {
+                    let request = XPCRequest(messageType: .controlCommand(.processImages))
+                    let reply = try session.sendSync(request)
+                    let response = try reply.decode(as: XPCResponse.self)
+
+                    DispatchQueue.main.async {
+                        switch response.reply {
+                        case .snapshots(let encodedSnapshots):
+                            frameManager.snapshots = decodeSnapshots(encodedSnapshots)
+                        case .didProcess:
+                            log("Processing succeeded")
+                        case .error(let error):
+                            log("Processing error: \(error)")
+                        default:
+                            log("TODO")
+                        }
+                    }
+                } catch {
+                    log("Failed to send message or decode reply: \(error)")
+                }
+            } else {
+                log("No XPC session")
+            }
         }
 
         Button("Info", systemImage: "info.circle", action: showInfo)
