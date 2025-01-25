@@ -33,7 +33,7 @@ func performTask(with message: XPCReceivedMessage) -> Encodable? {
 
             Task {
                 do {
-                    try await processor.process()
+                    try await processor.process(now: true)
                     result = XPCResponse(reply: .didProcess)
                 } catch {
                     result = XPCResponse(reply: .error("Processing failed: \(error)"))

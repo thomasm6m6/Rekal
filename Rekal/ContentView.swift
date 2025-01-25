@@ -2,10 +2,11 @@ import SwiftUI
 import Vision
 import ServiceManagement
 
-// TODO border around images?
+// TODO padding around images?
 // TODO settings page
 // TODO make "open rekal" function properly
 // TODO cmd+f or "/" to focus search
+// TODO make image exportable
 
 class LaunchManager {
     private static let launchAgentPlist = "com.thomasm6m6.RekalAgent.plist"
@@ -136,25 +137,28 @@ struct ImageView: View {
                 let timestamp = frameManager.snapshots.keys[frameManager.index]
                 if let snapshot = frameManager.snapshots[timestamp],
                    let image = snapshot.image {
-                    Image(image, scale: 1.0, label: Text("Screenshot"))
-                        .resizable()
-                        .scaledToFit()
-                        .onChange(of: image, initial: true) {
-                            showOCRView = false
-                            delayTask?.cancel()
+                    Group {
+                        Image(image, scale: 1.0, label: Text("Screenshot"))
+                            .resizable()
+                            .scaledToFit()
+                            .onChange(of: image, initial: true) {
+                                showOCRView = false
+                                delayTask?.cancel()
 
-                            delayTask = Task {
-                                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                                if !Task.isCancelled {
-                                    showOCRView = true
+                                delayTask = Task {
+                                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                                    if !Task.isCancelled {
+                                        showOCRView = true
+                                    }
                                 }
                             }
-                        }
-                        .overlay {
-                            if showOCRView {
-                                OCRView(snapshot: snapshot)
+                            .overlay {
+                                if showOCRView {
+                                    OCRView(snapshot: snapshot)
+                                }
                             }
-                        }
+                    }
+                    .padding()
                 } else {
                     Text("Failed to get the image")
                 }
@@ -169,9 +173,7 @@ struct ImageView: View {
 
 struct Toolbar: View {
     @StateObject var frameManager: FrameManager
-    @State private var searchText = ""
-    @State private var isShowingPopover = false
-    @State private var fullTextSearch = false
+    @State var isInfoShowing = false
     var xpcManager: XPCManager
 
     var body: some View {
@@ -185,34 +187,8 @@ struct Toolbar: View {
             .font(.system(.body, design: .monospaced))
 
         Spacer()
-
-        // TODO abstract into Settings struct
-
-        // FIXME doesn't appear in overflow menu
-        // FIXME not centered
-        // FIXME styling is hacky
-        // TODO make search box stand out somehow (rgb(30,30,30) background)
-        TextField("Search...", text: $searchText)
-            .textFieldStyle(.roundedBorder)
-        //                    .background(.red.opacity(0.5))
-        //                    .clipShape(RoundedRectangle(cornerRadius: 6))
-            .frame(width: 300)
-            .onSubmit {
-                let options = SearchOptions(
-                    fullText: fullTextSearch
-                )
-                frameManager.extractFrames(search: searchText, options: options)
-            }
-
-        Button("Search options", systemImage: "slider.horizontal.3") {
-            isShowingPopover = true
-        }
-        .popover(isPresented: $isShowingPopover, arrowEdge: .bottom) {
-            Toggle(isOn: $fullTextSearch) {
-                Text("Full-text search")
-            }
-            .padding()
-        }
+        
+        SearchBar(frameManager: frameManager)
 
         Spacer()
 
@@ -249,8 +225,38 @@ struct Toolbar: View {
             }
         }
 
-        Button("Info", systemImage: "info.circle", action: showInfo)
-            .disabled(frameManager.snapshots.isEmpty)
+        Button("Info", systemImage: "info.circle") {
+            isInfoShowing = true
+        }
+        .disabled(frameManager.snapshots.isEmpty)
+        .popover(isPresented: $isInfoShowing, arrowEdge: .bottom) {
+            let key = frameManager.snapshots.keys[frameManager.index]
+            if let snapshot = frameManager.snapshots[key] {
+                let info = snapshot.info
+
+                Group {
+                    let date = Date(timeIntervalSince1970: TimeInterval(snapshot.timestamp))
+                    Text("Time: \(date)")
+
+                    if let windowName = info.windowName {
+                        Text("Window name: \(windowName)")
+                    }
+
+                    if let appName = info.appName {
+                        Text("App name: \(appName)")
+                    }
+
+                    if let appId = info.appId {
+                        Text("App ID: \(appId)")
+                    }
+
+                    if let url = info.url {
+                        Text("URL: \(url)")
+                    }
+                }
+                .padding()
+            }
+        }
     }
 
     func previousImage() {
@@ -260,7 +266,39 @@ struct Toolbar: View {
     func nextImage() {
         frameManager.incrementIndex()
     }
+}
 
-    func showInfo() {
+struct SearchBar: View {
+    var frameManager: FrameManager
+    @State var isShowingPopover = false
+    @State var fullTextSearch = false
+    @State var searchText = ""
+
+    var body: some View {
+        // FIXME doesn't appear in overflow menu
+        // FIXME not centered
+        // FIXME styling is hacky
+        // TODO make search box stand out somehow (rgb(30,30,30) background)
+        TextField("Search...", text: $searchText)
+            .textFieldStyle(.roundedBorder)
+        //                    .background(.red.opacity(0.5))
+        //                    .clipShape(RoundedRectangle(cornerRadius: 6))
+            .frame(width: 300)
+            .onSubmit {
+                let options = SearchOptions(
+                    fullText: fullTextSearch
+                )
+                frameManager.extractFrames(search: searchText, options: options)
+            }
+
+        Button("Search options", systemImage: "slider.horizontal.3") {
+            isShowingPopover = true
+        }
+        .popover(isPresented: $isShowingPopover, arrowEdge: .bottom) {
+            Toggle(isOn: $fullTextSearch) {
+                Text("Full-text search")
+            }
+            .padding()
+        }
     }
 }
