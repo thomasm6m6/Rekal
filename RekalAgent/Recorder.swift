@@ -1,6 +1,6 @@
 import Foundation
 import CoreGraphics
-import ScreenCaptureKit // TODO probably shouldn't use preconcurrency
+@preconcurrency import ScreenCaptureKit // TODO probably shouldn't use preconcurrency
 
 // TODO ignore incognito chrome windows by default
 // FIXME:

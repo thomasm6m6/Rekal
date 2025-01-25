@@ -18,6 +18,7 @@ import Foundation
 // TODO change display name so that control center message says "Rekal recorded the screen recently" rather than "RekalAgent recorded the screen recently"
 //
 // TODO figure out logging
+// TODO swift 6
 
 func log2(_ message: String) {
     let fileURL = URL(fileURLWithPath: "/tmp/a.log")
