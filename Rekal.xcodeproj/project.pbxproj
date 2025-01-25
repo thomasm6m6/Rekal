@@ -8,10 +8,18 @@
 
 /* Begin PBXBuildFile section */
 		9258E2472D4200010099ABB8 /* OrderedCollections in Frameworks */ = {isa = PBXBuildFile; productRef = 9258E2462D4200010099ABB8 /* OrderedCollections */; };
-		925D41BB2D3F7AD800690B22 /* Shared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925D41B82D3F7A0D00690B22 /* Shared.swift */; };
+		9258E2542D44A0240099ABB8 /* Database.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9258E2532D44A0240099ABB8 /* Database.swift */; };
+		9258E2552D44A0240099ABB8 /* Database.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9258E2532D44A0240099ABB8 /* Database.swift */; };
+		9258E2572D44A08C0099ABB8 /* XPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9258E2562D44A08C0099ABB8 /* XPC.swift */; };
+		9258E2582D44A08C0099ABB8 /* XPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9258E2562D44A08C0099ABB8 /* XPC.swift */; };
+		9258E25A2D44A11F0099ABB8 /* OCR.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9258E2592D44A11F0099ABB8 /* OCR.swift */; };
+		9258E25B2D44A11F0099ABB8 /* OCR.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9258E2592D44A11F0099ABB8 /* OCR.swift */; };
+		9258E25D2D44A15B0099ABB8 /* Files.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9258E25C2D44A15B0099ABB8 /* Files.swift */; };
+		9258E25E2D44A15B0099ABB8 /* Files.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9258E25C2D44A15B0099ABB8 /* Files.swift */; };
+		925D41BB2D3F7AD800690B22 /* Definitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925D41B82D3F7A0D00690B22 /* Definitions.swift */; };
 		925D41BD2D3F7B2400690B22 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 925D41BC2D3F7B2400690B22 /* SQLite */; };
 		925D41D52D3F840A00690B22 /* OrderedCollections in Frameworks */ = {isa = PBXBuildFile; productRef = 925D41D42D3F840A00690B22 /* OrderedCollections */; };
-		925D41D62D3F841A00690B22 /* Shared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925D41B82D3F7A0D00690B22 /* Shared.swift */; };
+		925D41D62D3F841A00690B22 /* Definitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925D41B82D3F7A0D00690B22 /* Definitions.swift */; };
 		925D41E02D3F85E700690B22 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 925D41DF2D3F85E700690B22 /* SQLite */; };
 		925D41E12D3F865C00690B22 /* RekalAgent in Resources */ = {isa = PBXBuildFile; fileRef = 925D41C42D3F82D400690B22 /* RekalAgent */; };
 /* End PBXBuildFile section */
@@ -51,8 +59,12 @@
 /* Begin PBXFileReference section */
 		9258E2442D4183610099ABB8 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		9258E2452D41836A0099ABB8 /* LICENSE.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = LICENSE.md; sourceTree = "<group>"; };
+		9258E2532D44A0240099ABB8 /* Database.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Database.swift; sourceTree = "<group>"; };
+		9258E2562D44A08C0099ABB8 /* XPC.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XPC.swift; sourceTree = "<group>"; };
+		9258E2592D44A11F0099ABB8 /* OCR.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCR.swift; sourceTree = "<group>"; };
+		9258E25C2D44A15B0099ABB8 /* Files.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Files.swift; sourceTree = "<group>"; };
 		925D40972D3EDDC200690B22 /* Rekal.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Rekal.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		925D41B82D3F7A0D00690B22 /* Shared.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shared.swift; sourceTree = "<group>"; };
+		925D41B82D3F7A0D00690B22 /* Definitions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Definitions.swift; sourceTree = "<group>"; };
 		925D41C42D3F82D400690B22 /* RekalAgent */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = RekalAgent; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -142,7 +154,11 @@
 		925D41B92D3F7A0D00690B22 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
-				925D41B82D3F7A0D00690B22 /* Shared.swift */,
+				925D41B82D3F7A0D00690B22 /* Definitions.swift */,
+				9258E2532D44A0240099ABB8 /* Database.swift */,
+				9258E2562D44A08C0099ABB8 /* XPC.swift */,
+				9258E2592D44A11F0099ABB8 /* OCR.swift */,
+				9258E25C2D44A15B0099ABB8 /* Files.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -265,7 +281,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				925D41BB2D3F7AD800690B22 /* Shared.swift in Sources */,
+				925D41BB2D3F7AD800690B22 /* Definitions.swift in Sources */,
+				9258E25A2D44A11F0099ABB8 /* OCR.swift in Sources */,
+				9258E2552D44A0240099ABB8 /* Database.swift in Sources */,
+				9258E25D2D44A15B0099ABB8 /* Files.swift in Sources */,
+				9258E2582D44A08C0099ABB8 /* XPC.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -273,7 +293,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				925D41D62D3F841A00690B22 /* Shared.swift in Sources */,
+				9258E25B2D44A11F0099ABB8 /* OCR.swift in Sources */,
+				9258E2542D44A0240099ABB8 /* Database.swift in Sources */,
+				9258E25E2D44A15B0099ABB8 /* Files.swift in Sources */,
+				925D41D62D3F841A00690B22 /* Definitions.swift in Sources */,
+				9258E2572D44A08C0099ABB8 /* XPC.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

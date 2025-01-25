@@ -35,8 +35,10 @@ class MediaWriter {
     var index = 0
 
     init(
-        input: AVAssetWriterInput, writer: AVAssetWriter,
-        adaptor: AVAssetWriterInputPixelBufferAdaptor, url: URL
+        input: AVAssetWriterInput,
+        writer: AVAssetWriter,
+        adaptor: AVAssetWriterInputPixelBufferAdaptor,
+        url: URL
     ) {
         self.input = input
         self.writer = writer

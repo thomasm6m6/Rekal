@@ -56,7 +56,7 @@ struct Toolbar: View {
 }
 
 struct NavigationView: View {
-    var frameManager: FrameManager
+    @StateObject var frameManager: FrameManager
 
     var body: some View {
         Button("Previous", systemImage: "chevron.left", action: frameManager.decrementIndex)
@@ -72,7 +72,7 @@ struct NavigationView: View {
 }
 
 struct SearchBar: View {
-    var frameManager: FrameManager
+    @StateObject var frameManager: FrameManager
     @State var isShowingPopover = false
     @State var fullTextSearch = false
     @State var searchText = ""
@@ -107,7 +107,7 @@ struct SearchBar: View {
 }
 
 struct InfoButton: View {
-    var frameManager: FrameManager
+    @StateObject var frameManager: FrameManager
     @State private var isInfoShowing = false
 
     var body: some View {
