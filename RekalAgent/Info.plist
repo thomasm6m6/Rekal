@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>please</string>
+	<string>Used to record the active tab URL in the web browser.</string>
 </dict>
 </plist>

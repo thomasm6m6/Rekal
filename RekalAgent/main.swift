@@ -41,7 +41,8 @@ func performTask(with message: XPCReceivedMessage) -> Encodable? {
         case .fetchImages:
 //            let now = Int(Date().timeIntervalSince1970)
 //            let snapshots = data.getRange(from: now - 600, to: now)
-            let snapshots = data.getRecent()
+//            let snapshots = data.getRecent()
+            let snapshots = data.get()
             let encodedSnapshots = encodeSnapshots(snapshots)
             return XPCResponse(reply: .snapshots(encodedSnapshots))
         case .controlCommand(.startRecording):
@@ -83,34 +84,34 @@ func log2(_ message: String) {
             // Append the message to the file
             let fileHandle = try FileHandle(forWritingTo: fileURL)
             fileHandle.seekToEndOfFile()
-            if let data = (message + "\n").data(using: .utf8) {
+            if let data = "\(Date.now)\t\(message)\n".data(using: .utf8) {
                 fileHandle.write(data)
             }
             fileHandle.closeFile()
         } else {
             // Create a new file and write the message
-            try (message + "\n").write(to: fileURL, atomically: true, encoding: .utf8)
+            try "\(Date.now)\t\(message)\n".write(to: fileURL, atomically: true, encoding: .utf8)
         }
     } catch {
         print("Error writing to file: \(error)")
     }
 }
 
-log("Starting daemon...")
+log2("Starting daemon...")
 
 let data = SnapshotData()
 let recorder = Recorder(data: data, interval: 1.0)
 
 let processor: Processor
 do { try processor = Processor(data: data, interval: 300) } catch {
-    log("Error initializing Processor")
+    log2("Error initializing Processor")
     exit(1)
 }
 
 Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
     Task {
         do { try await recorder.record() } catch {
-            log("Error capturing snapshot: \(error)")
+            log2("Error capturing snapshot: \(error)")
         }
     }
 }
@@ -118,7 +119,7 @@ Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
 Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { _ in
     Task {
         do { try await processor.process() } catch {
-            log("Error processing snapshots: \(error)")
+            log2("Error processing snapshots: \(error)")
         }
     }
 }

@@ -3,11 +3,19 @@ import Vision
 
 // TODO make "open rekal" function properly
 // TODO alternative to passing frameManager manually to every custom view?
+// TODO use `public`/`private`/`@Published` correctly
+// FIXME images are displayed out of order
+// FIXME "onChange(of: CGImageRef) action tried to update multiple times per frame"
+// TODO easily noticeable warning (maybe a popup, and/or an exclamation point through the menu bar icon) if the record function throws when it shouldn't
+// FIXME applescript
+// FIXME "Publishing changes from within view updates is not allowed, this will cause undefined behavior" (nextImage/previousImage)
 
 struct ContentView: View {
-    @StateObject private var frameManager = FrameManager()
-    @State private var selectedDate = Date()
     var xpcManager: XPCManager
+
+    @StateObject var frameManager = FrameManager()
+    @State private var selectedDate = Date()
+    @FocusState private var focused: Bool
 
     private let backgroundColor = Color(red: 18/256, green: 18/256, blue: 18/256) // #121212
 
@@ -27,33 +35,27 @@ struct ContentView: View {
         .onAppear {
             _ = LaunchManager.registerLaunchAgent()
             xpcManager.setup()
-            fetchImages()
+            frameManager.extractFrames(
+                search: "",
+                options: SearchOptions(fullText: false),
+                xpcManager: xpcManager
+            )
 
             _ = LaunchManager.registerLoginItem()
         }
-    }
-
-    func fetchImages() {
-        // TODO fetch all(?) the in-memory images, asynchronously
-        if let session = xpcManager.session {
-            do {
-                let request = XPCRequest(messageType: .fetchImages)
-                let reply = try session.sendSync(request)
-                let response = try reply.decode(as: XPCResponse.self)
-
-                DispatchQueue.main.async {
-                    switch response.reply {
-                    case .snapshots(let encodedSnapshots):
-                        frameManager.snapshots = decodeSnapshots(encodedSnapshots)
-                    default:
-                        log("TODO")
-                    }
-                }
-            } catch {
-                log("Failed to send message or decode reply: \(error)")
-            }
-        } else {
-            log("No XPC session")
+        .focusable()
+        .focused($focused)
+        .focusEffectDisabled()
+        .onAppear {
+            focused = true
+        }
+        .onKeyPress(.leftArrow) {
+            frameManager.previousImage()
+            return .handled
+        }
+        .onKeyPress(.rightArrow) {
+            frameManager.nextImage()
+            return .handled
         }
     }
 }

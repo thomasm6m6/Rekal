@@ -134,18 +134,17 @@ class Database {
         return snapshots
     }
 
-    func getAppList() throws -> ([String], [String]) {
+    func getAppList() throws -> ([String], [String], [String]) {
         var appIds: [String] = []
         var appNames: [String] = []
+        var urls: [String] = []
         for row in try db.prepare(snapshotTable) {
-            let appId = row[snapshotAppID]
-            let appName = row[snapshotAppName]
-
-            guard var appId = appId, var appName = appName else {
+            guard let appId = row[snapshotAppID]?.lowercased(),
+                  let appName = row[snapshotAppName]?.lowercased(),
+                  let url = row[snapshotURL]?.lowercased()
+            else {
                 continue
             }
-            appId = appId.lowercased()
-            appName = appName.lowercased()
 
             if !appIds.contains(appId) {
                 appIds.append(appId)
@@ -153,8 +152,11 @@ class Database {
             if !appNames.contains(appName) {
                 appNames.append(appName)
             }
+            if !urls.contains(url) {
+                urls.append(url)
+            }
         }
 
-        return (appIds, appNames)
+        return (appIds, appNames, urls)
     }
 }

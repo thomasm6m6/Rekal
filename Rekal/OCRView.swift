@@ -60,7 +60,7 @@ struct OCRView: View {
                     ocrData = snapshot.ocrData
                 }
 
-                if let ocrData = ocrData, let jsonData = ocrData.data(using: .utf8) {
+                if let jsonData = ocrData?.data(using: .utf8) {
                     let decoder = JSONDecoder()
                     let results = try decoder.decode([OCRResult].self, from: jsonData)
                     await MainActor.run {

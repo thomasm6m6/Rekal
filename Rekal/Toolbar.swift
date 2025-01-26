@@ -1,5 +1,7 @@
 import SwiftUI
 
+// TODO UserDefaults for search options
+
 struct Toolbar: View {
     @StateObject var frameManager: FrameManager
     @State var isInfoShowing = false
@@ -10,14 +12,9 @@ struct Toolbar: View {
 
         Spacer()
 
-        SearchBar(frameManager: frameManager)
+        SearchBar(frameManager: frameManager, xpcManager: xpcManager)
 
         Spacer()
-
-        Button("Unregister") {
-            _ = LaunchManager.unregisterLaunchAgent()
-            _ = LaunchManager.unregisterLoginItem()
-        }
 
         Button("Process now") {
             processNow()
@@ -59,10 +56,10 @@ struct NavigationView: View {
     @StateObject var frameManager: FrameManager
 
     var body: some View {
-        Button("Previous", systemImage: "chevron.left", action: frameManager.decrementIndex)
+        Button("Previous", systemImage: "chevron.left", action: frameManager.previousImage)
             .disabled(frameManager.snapshots.isEmpty || frameManager.index < 1)
 
-        Button("Next", systemImage: "chevron.right", action: frameManager.incrementIndex)
+        Button("Next", systemImage: "chevron.right", action: frameManager.nextImage)
             .disabled(frameManager.snapshots.isEmpty || frameManager.index >= frameManager.snapshots.count-1)
 
         let count = frameManager.snapshots.count
@@ -76,6 +73,7 @@ struct SearchBar: View {
     @State var isShowingPopover = false
     @State var fullTextSearch = false
     @State var searchText = ""
+    var xpcManager: XPCManager
 
     var body: some View {
         // FIXME doesn't appear in overflow menu
@@ -91,7 +89,7 @@ struct SearchBar: View {
                 let options = SearchOptions(
                     fullText: fullTextSearch
                 )
-                frameManager.extractFrames(search: searchText, options: options)
+                frameManager.extractFrames(search: searchText, options: options, xpcManager: xpcManager)
             }
 
         Button("Search options", systemImage: "slider.horizontal.3") {
@@ -119,8 +117,8 @@ struct InfoButton: View {
             let key = frameManager.snapshots.keys[frameManager.index]
             if let snapshot = frameManager.snapshots[key] {
                 let info = snapshot.info
-                
-                Group {
+
+                VStack {
                     let date = Date(timeIntervalSince1970: TimeInterval(snapshot.timestamp))
                     Text("Time: \(date)")
                     
@@ -136,6 +134,7 @@ struct InfoButton: View {
                         Text("App ID: \(appId)")
                     }
                     
+                    // FIXME don't seem to show the URL ever
                     if let url = info.url {
                         Text("URL: \(url)")
                     }

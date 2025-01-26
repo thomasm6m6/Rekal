@@ -11,7 +11,8 @@ struct RekalApp: App {
     var body: some Scene {
         WindowGroup(id: "main-window") {
             ContentView(xpcManager: xpcManager)
-                .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+                .onReceive(NotificationCenter.default.publisher(
+                        for: NSApplication.willTerminateNotification)) { _ in
                     if let session = xpcManager.session {
                         session.cancel(reason: "Done")
                     }
@@ -24,6 +25,10 @@ struct RekalApp: App {
                 }
         }
         .windowToolbarStyle(.unified(showsTitle: false))
+
+        Settings {
+            SettingsView()
+        }
 
         MenuBarExtra {
             Button(isRecording ? "Pause recording" : "Resume recording") {

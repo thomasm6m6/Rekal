@@ -82,10 +82,8 @@ actor Processor {
             log("Device is on battery power; delaying processing")
             return
         }
-
-        guard let firstSnapshot = snapshots.values.first,
-              let firstImage = firstSnapshot.image
-        else {
+        
+        guard let firstImage = snapshots.values.first?.image else {
             log("No snapshots to encode")
             return
         }

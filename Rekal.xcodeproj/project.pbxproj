@@ -493,9 +493,12 @@
 		925D41C92D3F82D400690B22 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = RekalAgent/RekalAgent.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
 				DEVELOPMENT_TEAM = V23V5WAV7Z;
 				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = RekalAgent/Info.plist;
 				PRODUCT_BUNDLE_IDENTIFIER = com.thomasm6m6.RekalAgent;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -506,9 +509,12 @@
 		925D41CA2D3F82D400690B22 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = RekalAgent/RekalAgent.entitlements;
 				CODE_SIGN_STYLE = Automatic;
+				CREATE_INFOPLIST_SECTION_IN_BINARY = YES;
 				DEVELOPMENT_TEAM = V23V5WAV7Z;
 				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = RekalAgent/Info.plist;
 				PRODUCT_BUNDLE_IDENTIFIER = com.thomasm6m6.RekalAgent;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;

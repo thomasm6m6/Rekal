@@ -15,18 +15,20 @@ struct SearchOptions {
 
 @MainActor
 class FrameManager: ObservableObject {
+    // TODO grok @Published
     @Published var snapshots = SnapshotList()
     @Published var videos = VideoList()
     @Published var index = 0
-    @Published var isProcessing = false
     var matchOCR = false
-    private var appIds: [String] = []
-    private var appNames: [String] = []
+    var appIds: [String] = []
+    var appNames: [String] = []
+    var urls: [String] = []
 
     // TODO consider whether SQL JOIN function would be useful
     // TODO use sql queries with the parsed query to know when to ignore a video entirely
-    func extractFrames(search searchText: String, options searchOptions: SearchOptions) {
+    func extractFrames(search searchText: String, options searchOptions: SearchOptions, xpcManager: XPCManager) {
         var db: Database
+        var getImagesInMemory = false
 
         snapshots = [:]
         videos = [:]
@@ -41,38 +43,38 @@ class FrameManager: ObservableObject {
 
         let searchText = searchText.lowercased().trimmingCharacters(in: .whitespaces)
         let search = parseQuery(searchText, database: db)
+        
+        let minTimestamp: Int
+        if search.minTimestamp == nil {
+            minTimestamp = Int(Calendar.current.startOfDay(for: Date()).timeIntervalSince1970)
+            getImagesInMemory = true
+        } else {
+            minTimestamp = search.minTimestamp!
+        }
 
-        let minTimestamp = search.minTimestamp ??
-            Int(Calendar.current.startOfDay(for: Date()).timeIntervalSince1970)
         let maxTimestamp = search.maxTimestamp ?? minTimestamp + 24 * 60 * 60
 
         Task {
             do {
-                let tempDir = try Files.tempDir()
                 videos = try db.videosBetween(minTime: minTimestamp, maxTime: maxTimestamp)
-
-                isProcessing = true
-                defer {
-                    isProcessing = false
-                }
-
+                
                 // TODO skip as much of this process as possible according to filters
                 for (videoTimestamp, video) in videos {
                     var rawImages: [CGImage] = []
                     let snapshotsInVideo = try db.snapshotsInVideo(videoTimestamp: videoTimestamp)
-
+                    
                     let asset = AVURLAsset(url: video.url)
                     let generator = AVAssetImageGenerator(asset: asset)
                     generator.appliesPreferredTrackTransform = true
                     generator.requestedTimeToleranceBefore = .zero
                     generator.requestedTimeToleranceAfter = .zero
-
+                    
                     do {
                         let duration = try await asset.load(.duration)
                         let times = stride(from: 1.0, to: duration.seconds, by: 1.0).map {
                             CMTime(seconds: $0, preferredTimescale: duration.timescale)
                         }
-
+                        
                         for await result in generator.images(for: times) {
                             switch result {
                             case .success(requestedTime: _, let image, actualTime: _):
@@ -84,12 +86,12 @@ class FrameManager: ObservableObject {
                     } catch {
                         print("Error loading video: \(error)")
                     }
-
+                    
                     guard snapshotsInVideo.count == rawImages.count else {
                         print("snapshotsInVideo.count != rawImages.count for \(video.url.path)")
                         continue
                     }
-
+                    
                     // TODO proper fuzzy search
                     for (index, image) in rawImages.enumerated() {
                         let timestamp = snapshotsInVideo.keys[index]
@@ -97,32 +99,59 @@ class FrameManager: ObservableObject {
                             continue
                         }
                         snapshot.image = image
-
+                        
                         if (search.terms.count == 0 && search.apps.count == 0) || queryMatches(
                             search: search,
                             snapshot: snapshot,
                             options: searchOptions
                         ) {
-                            snapshots[timestamp] = snapshot
+                            self.snapshots[timestamp] = snapshot
                         }
                     }
                 }
-                try FileManager.default.removeItem(at: tempDir)
             } catch {
                 print(error)
+            }
+
+            // TODO fetch all(?) the in-memory images, asynchronously
+            // FIXME can block indefinitely if sendSync doesn't return
+            if getImagesInMemory, let session = xpcManager.session {
+                do {
+                    let request = XPCRequest(messageType: .fetchImages)
+                    let reply = try session.sendSync(request)
+                    let response = try reply.decode(as: XPCResponse.self)
+                    
+                    DispatchQueue.main.async {
+                        switch response.reply {
+                        case .snapshots(let encodedSnapshots):
+                            let decodedSnapshots = decodeSnapshots(encodedSnapshots)
+                            for (timestamp, snapshot) in decodedSnapshots {
+                                if self.snapshots[timestamp] == nil {
+                                    self.snapshots[timestamp] = snapshot
+                                }
+                            }
+                        default:
+                            log("TODO")
+                        }
+                    }
+                } catch {
+                    log("Failed to send message or decode reply: \(error)")
+                }
+            } else {
+                log("No XPC session")
             }
         }
     }
 
-    func incrementIndex() {
-        if index < snapshots.count - 1 {
-            index += 1
+    func previousImage() {
+        if index > 0 {
+            index -= 1
         }
     }
 
-    func decrementIndex() {
-        if index > 0 {
-            index -= 1
+    func nextImage() {
+        if index < snapshots.count - 1 {
+            index += 1
         }
     }
 
@@ -157,17 +186,26 @@ class FrameManager: ObservableObject {
             print("error: \(error)")
         }
 
-        if appIds.count == 0 && appNames.count == 0 {
+        if appIds.count == 0 && appNames.count == 0 && urls.count == 0 {
             do {
-                (appIds, appNames) = try database.getAppList()
+                (appIds, appNames, urls) = try database.getAppList()
             } catch {
                 print("Error getting app list from database: \(error)")
             }
         }
+
+        var hostNames: [String] = []
+        for url in urls {
+            if let host = URL(string: url)?.host(percentEncoded: false) {
+                hostNames.append(host)
+            }
+        }
+
         var newTerms: [String] = []
         for term in terms {
             let matchesApp = appIds.contains(term) ||
-                appNames.contains(where: { $0.contains(term) })
+                appNames.contains(where: { $0.contains(term) }) ||
+                hostNames.contains(term)
 
             if matchesApp {
                 apps.append(term)
@@ -218,36 +256,33 @@ class FrameManager: ObservableObject {
         let info = snapshot.info
         
         for app in search.apps {
-            if let appId = info.appId, app == appId.lowercased() {
+            if app == info.appId?.lowercased() {
                 return true
-            } else if let appName = info.appName, appName.lowercased().contains(app) {
-                return true
-            }
-        }
-
-        if let windowName = info.windowName {
-            let windowName = windowName.lowercased()
-
-            // true if any value of `terms` is a substring of `windowName`
-            if search.terms.contains(where: { windowName.contains($0) }) {
+            } else if info.appName?.lowercased().contains(app) == true {
                 return true
             }
         }
 
-        if let urlString = info.url,
-           let url = URL(string: urlString),
-           let host = url.host(percentEncoded: false)
+        // true if any value of `terms` is a substring of `windowName`
+        if let windowName = info.windowName?.lowercased(),
+           search.terms.contains(where: { windowName.contains($0) })
         {
-            // true if any value of `terms` is a substring of `url`
-            if search.terms.contains(where: { host.contains($0) }) {
-                return true
-            }
+            return true
         }
 
-        if options.fullText, let ocrData = snapshot.ocrData {
-            if search.terms.allSatisfy({ ocrData.contains($0) }) {
-                return true
-            }
+        // true if any value of `terms` is a substring of `url`
+        if let url = info.url,
+           let host = URL(string: url)?.host(percentEncoded: false),
+           search.terms.contains(where: { host.contains($0) })
+        {
+            return true
+        }
+        
+        if options.fullText,
+           let ocrData = snapshot.ocrData,
+           search.terms.allSatisfy({ ocrData.contains($0) })
+        {
+            return true
         }
 
         return false
