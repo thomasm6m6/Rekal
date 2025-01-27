@@ -1,4 +1,5 @@
 import SwiftUI
+import XPC
 import Vision
 import AVFoundation
 
@@ -8,7 +9,6 @@ import AVFoundation
 // FIXME: "onChange(of: CGImageRef) action tried to update multiple times per frame"
 // TODO: easily noticeable warning (maybe a popup, and/or an exclamation point through the menu bar icon) if the record function throws when it shouldn't
 // FIXME: applescript
-// FIXME: "Publishing changes from within view updates is not allowed, this will cause undefined behavior" (nextImage/previousImage)
 // TODO: combine frameManager, xpcManager, etc into a ContextManager?
 // TODO: search bar doesn't show in overflow menu when window width is small
 
@@ -28,37 +28,6 @@ struct Search {
             maxTimestamp: today + 24 * 60 * 60,
             terms: []
         )
-    }
-}
-
-enum ImageError: Error {
-    case xpcError(String)
-    case decodingError(String)
-}
-
-class ImageModel: ObservableObject {
-    @Published var snapshots = SnapshotList()
-    @Published var index = 0
-
-    // TODO: warning: "Publishing changes from within view updates is not allowed, this will cause undefined behavior"
-    func nextImage() {
-        if !atLastImage {
-            index += 1
-        }
-    }
-
-    func previousImage() {
-        if !atFirstImage {
-            index -= 1
-        }
-    }
-
-    var atFirstImage: Bool {
-        return index == 0
-    }
-
-    var atLastImage: Bool {
-        return index == snapshots.count - 1
     }
 }
 
@@ -101,7 +70,7 @@ struct ContentView: View {
                     Spacer()
                 }
                 .onAppear {
-                    loadImages()
+                    imageModel.loadImages()
                 }
             }
             .toolbar {
@@ -265,5 +234,4 @@ struct ContentView: View {
 
         return result
     }
-
 }
