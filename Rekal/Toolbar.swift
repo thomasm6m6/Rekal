@@ -1,85 +1,101 @@
 import SwiftUI
 
-// TODO UserDefaults for search options
-
 struct Toolbar: View {
-    @StateObject var frameManager: FrameManager
+    @StateObject var imageModel: ImageModel
     @State var isInfoShowing = false
-    var xpcManager: XPCManager
+//    var xpcManager = XPCManager.shared
+
+    @FocusState var isSearchFocused: Bool
 
     var body: some View {
-        NavigationView(frameManager: frameManager)
+        NavView(imageModel: imageModel)
 
         Spacer()
 
-        SearchBar(frameManager: frameManager, xpcManager: xpcManager)
+        SearchBar()
 
         Spacer()
 
         Button("Process now") {
-            processNow()
+//            processNow()
         }
 
-        InfoButton(frameManager: frameManager)
+        InfoButton(imageModel: imageModel)
     }
 
     func processNow() {
-        // TODO fetch all(?) the in-memory images, asynchronously
-        if let session = xpcManager.session {
+        Task.detached {
             do {
-                let request = XPCRequest(messageType: .controlCommand(.processImages))
-                let reply = try session.sendSync(request)
-                let response = try reply.decode(as: XPCResponse.self)
+                let xpcSession = try XPCSession(machService: "com.thomasm6m6.RekalAgent.xpc")
+                defer { xpcSession.cancel(reason: "Done") }
 
-                DispatchQueue.main.async {
-                    switch response.reply {
-                    case .snapshots(let encodedSnapshots):
-                        frameManager.snapshots = decodeSnapshots(encodedSnapshots)
-                    case .didProcess:
-                        log("Processing succeeded")
-                    case .error(let error):
-                        log("Processing error: \(error)")
-                    default:
-                        log("TODO")
+                let request = XPCRequest(messageType: .controlCommand(.processImages))
+
+                let response = try await withCheckedThrowingContinuation {
+                    (continuation: CheckedContinuation<XPCResponse, any Error>) in
+                    do {
+                        try xpcSession.send(request) { result in
+                            switch result {
+                            case .success(let reply):
+                                do {
+                                    let response = try reply.decode(as: XPCResponse.self)
+                                    continuation.resume(returning: response)
+                                } catch {
+                                    continuation.resume(throwing: error)
+                                }
+                            case .failure(let error):
+                                continuation.resume(throwing: error)
+                            }
+                        }
+                    } catch {
+                        continuation.resume(throwing: error)
                     }
                 }
+
+                switch response.reply {
+                case .didProcess:
+                    log("Processing succeeded")
+                case .error(let error):
+                    log("Processing error: \(error)")
+                default:
+                    log("Unexpected reply")
+                }
             } catch {
-                log("Failed to send message or decode reply: \(error)")
+                log("Error: \(error)")
             }
-        } else {
-            log("No XPC session")
         }
     }
 }
 
-struct NavigationView: View {
-    @StateObject var frameManager: FrameManager
+struct NavView: View {
+    @StateObject var imageModel: ImageModel
 
     var body: some View {
-        Button("Previous", systemImage: "chevron.left", action: frameManager.previousImage)
-            .disabled(frameManager.snapshots.isEmpty || frameManager.index < 1)
+        Button("Previous", systemImage: "chevron.left", action: imageModel.previousImage)
+            .disabled(imageModel.snapshots.isEmpty || imageModel.atFirstImage)
 
-        Button("Next", systemImage: "chevron.right", action: frameManager.nextImage)
-            .disabled(frameManager.snapshots.isEmpty || frameManager.index >= frameManager.snapshots.count-1)
+        Button("Next", systemImage: "chevron.right", action: imageModel.nextImage)
+            .disabled(imageModel.snapshots.isEmpty || imageModel.atLastImage)
 
-        let count = frameManager.snapshots.count
-        Text("\(count == 0 ? 0 : frameManager.index + 1)/\(count)")
+        let count = imageModel.snapshots.count
+        Text("\(count == 0 ? 0 : imageModel.index + 1)/\(count)")
             .font(.system(.body, design: .monospaced))
     }
 }
 
 struct SearchBar: View {
-    @StateObject var frameManager: FrameManager
     @State var isShowingPopover = false
-    @State var fullTextSearch = false
+    @AppStorage("fullText") var fullText = false
     @State var searchText = ""
-    var xpcManager: XPCManager
+//    var xpcManager: XPCManager
+
+//    @FocusState var isSearchFocused: Bool
 
     var body: some View {
-        // FIXME doesn't appear in overflow menu
-        // FIXME not centered
-        // FIXME styling is hacky
-        // TODO make search box stand out somehow (rgb(30,30,30) background)
+        // FIXME: doesn't appear in overflow menu
+        // FIXME: not centered
+        // FIXME: styling is hacky
+        // TODO: make search box stand out somehow (rgb(30,30,30) background)
         TextField("Search...", text: $searchText)
             .textFieldStyle(.roundedBorder)
         //                    .background(.red.opacity(0.5))
@@ -87,16 +103,18 @@ struct SearchBar: View {
             .frame(width: 300)
             .onSubmit {
                 let options = SearchOptions(
-                    fullText: fullTextSearch
+                    fullText: fullText
                 )
-                frameManager.extractFrames(search: searchText, options: options, xpcManager: xpcManager)
+//                frameManager.extractFrames(search: searchText, options: options, xpcManager: xpcManager)
             }
+//            .focusable()
+//            .focused(isSearchFocused)
 
         Button("Search options", systemImage: "slider.horizontal.3") {
             isShowingPopover = true
         }
         .popover(isPresented: $isShowingPopover, arrowEdge: .bottom) {
-            Toggle(isOn: $fullTextSearch) {
+            Toggle(isOn: $fullText) {
                 Text("Full-text search")
             }
             .padding()
@@ -105,41 +123,70 @@ struct SearchBar: View {
 }
 
 struct InfoButton: View {
-    @StateObject var frameManager: FrameManager
+    @StateObject var imageModel: ImageModel
     @State private var isInfoShowing = false
 
     var body: some View {
         Button("Info", systemImage: "info.circle") {
             isInfoShowing = true
         }
-        .disabled(frameManager.snapshots.isEmpty)
+        .disabled(imageModel.snapshots.isEmpty)
         .popover(isPresented: $isInfoShowing, arrowEdge: .bottom) {
-            let key = frameManager.snapshots.keys[frameManager.index]
-            if let snapshot = frameManager.snapshots[key] {
+            let key = imageModel.snapshots.keys[imageModel.index]
+            if let snapshot = imageModel.snapshots[key] {
                 let info = snapshot.info
 
-                VStack {
-                    let date = Date(timeIntervalSince1970: TimeInterval(snapshot.timestamp))
-                    Text("Time: \(date)")
-                    
+                // TODO: multiline text where needed (e.g. window name)
+                Grid(alignment: .leading) {
+                    GridRow {
+                        Text("Time")
+
+                        let date = Date(timeIntervalSince1970: TimeInterval(snapshot.timestamp))
+                        let format = Date.FormatStyle(date: .abbreviated, time: .shortened)
+                            .attributedStyle
+                        Text(date, format: format)
+                            .textSelection(.enabled)
+                    }
+
                     if let windowName = info.windowName {
-                        Text("Window name: \(windowName)")
+                        GridRow {
+                            Text("Window name")
+
+                            Text(windowName)
+                                .textSelection(.enabled)
+//                                .lineLimit(3)
+                        }
                     }
-                    
+
                     if let appName = info.appName {
-                        Text("App name: \(appName)")
+                        GridRow {
+                            Text("App name")
+
+                            Text(appName)
+                                .textSelection(.enabled)
+                        }
                     }
-                    
+
                     if let appId = info.appId {
-                        Text("App ID: \(appId)")
+                        GridRow {
+                            Text("App ID")
+
+                            Text(appId)
+                                .textSelection(.enabled)
+                        }
                     }
-                    
-                    // FIXME don't seem to show the URL ever
+
                     if let url = info.url {
-                        Text("URL: \(url)")
+                        GridRow {
+                            Text("URL")
+
+                            Text(url)
+                                .textSelection(.enabled)
+                        }
                     }
                 }
                 .padding()
+                .frame(maxWidth: 400)
             }
         }
     }

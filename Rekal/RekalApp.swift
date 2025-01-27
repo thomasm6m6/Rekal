@@ -1,28 +1,32 @@
 import SwiftUI
 
-// TODO search bar doesn't show in overflow menu when window width is small
-
 @main
 struct RekalApp: App {
     @State var isRecording = true
     @State var snapshotCount = 0
-    var xpcManager = XPCManager()
+//    var xpcManager = XPCManager.shared
+
+//    @FocusState var isSearchFocused: Bool
 
     var body: some Scene {
         WindowGroup(id: "main-window") {
-            ContentView(xpcManager: xpcManager)
-                .onReceive(NotificationCenter.default.publisher(
-                        for: NSApplication.willTerminateNotification)) { _ in
-                    if let session = xpcManager.session {
-                        session.cancel(reason: "Done")
-                    }
-                }
+            ContentView()
+//                .onReceive(NotificationCenter.default.publisher(
+//                        for: NSApplication.willTerminateNotification)) { _ in
+//                    if let session = xpcManager.getSession() {
+//                        session.cancel(reason: "Done")
+//                    }
+//                }
                 .onAppear {
                     NSApplication.shared.setActivationPolicy(.regular)
                 }
                 .onDisappear {
                     NSApplication.shared.setActivationPolicy(.accessory)
                 }
+//                .onKeyPress { key in
+//                    isSearchFocused = true
+//                    return .ignored
+//                }
         }
         .windowToolbarStyle(.unified(showsTitle: false))
 
@@ -40,7 +44,7 @@ struct RekalApp: App {
 
             Button("Quit") {
                 NSApplication.shared.terminate(nil)
-                // TODO should quit daemon as well, if option was held
+                // TODO: should quit daemon as well, if option was held
             }.keyboardShortcut("q")
         } label: {
             MenuBarIcon(isRecording: $isRecording)
@@ -50,7 +54,7 @@ struct RekalApp: App {
 
 struct OpenWindowButton: View {
     @Environment(\.openWindow) private var openWindow
-    
+
     var body: some View {
         Button("Open Rekal") {
             openWindow(id: "main-window")
@@ -58,8 +62,8 @@ struct OpenWindowButton: View {
     }
 }
 
-// TODO embed rotated icon as an asset
-// TODO also it's not quite centered
+// TODO: embed rotated icon as an asset
+// TODO: also it's not quite centered
 struct MenuBarIcon: View {
     @Binding var isRecording: Bool
 

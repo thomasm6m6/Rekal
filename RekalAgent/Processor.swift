@@ -5,13 +5,13 @@ import Foundation
 import IOKit.ps
 import Vision
 
-// TODO proper queue algorithm?
-// TODO layout-aware OCR
-// TODO make sure it correctly handles being unplugged mid-processing
+// TODO: proper queue algorithm?
+// TODO: layout-aware OCR
+// TODO: make sure it correctly handles being unplugged mid-processing
 
-// TODO dump files to disk after a certain period of time if we haven't been connected to power
+// TODO: dump files to disk after a certain period of time if we haven't been connected to power
 
-// TODO write video files as soon as they're done, not once all the images have been processed
+// TODO: write video files as soon as they're done, not once all the images have been processed
 // (might be that this is already happening, but the "wrote file.mp4" message waits)
 
 // FIXME:
@@ -82,7 +82,7 @@ actor Processor {
             log("Device is on battery power; delaying processing")
             return
         }
-        
+
         guard let firstImage = snapshots.values.first?.image else {
             log("No snapshots to encode")
             return
@@ -161,7 +161,7 @@ actor Processor {
             data.remove(for: timestamp)
         }
 
-        // TODO async
+        // TODO: async
         for mediaWriter in mediaWriters.values {
             mediaWriter.input.markAsFinished()
             await mediaWriter.writer.finishWriting()
@@ -173,7 +173,7 @@ actor Processor {
         let snapshot = IOPSCopyPowerSourcesInfo().takeRetainedValue()
         let type = IOPSGetProvidingPowerSourceType(snapshot)
         guard let type = type else {
-            return false  // TODO maybe throw
+            return false  // TODO: maybe throw
         }
         let type2 = type.takeRetainedValue() as String
         return type2 == kIOPSACPowerValue

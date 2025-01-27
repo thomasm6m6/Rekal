@@ -1,16 +1,7 @@
 import Foundation
 import CoreGraphics
 import ImageIO
-
-class XPCManager {
-    var session: XPCSession?
-
-    func setup() {
-        if session == nil {
-            session = try? XPCSession(machService: "com.thomasm6m6.RekalAgent.xpc")
-        }
-    }
-}
+import ServiceManagement
 
 struct XPCRequest: Codable {
     let messageType: MessageType
@@ -91,6 +82,10 @@ func decodeSnapshots(_ encodedSnapshots: EncodedSnapshotList) -> SnapshotList {
         )
     }
     return snapshots
+}
+
+func buildListFromResponse(dictionary: XPCDictionary) -> SnapshotList? {
+    return nil
 }
 
 extension CGImage {

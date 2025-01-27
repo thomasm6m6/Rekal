@@ -7,8 +7,10 @@ class LaunchManager {
     static func registerLoginItem() -> Bool {
         let service = SMAppService.mainApp
         do {
-            try service.register()
-            log("Registered login item")
+            if service.status == .notRegistered {
+                try service.register()
+                log("Registered login item")
+            }
             return true
         } catch {
             log("Error registering login item: \(error)")
@@ -36,8 +38,10 @@ class LaunchManager {
     static func registerLaunchAgent() -> Bool {
         let service = SMAppService.agent(plistName: launchAgentPlist)
         do {
-            try service.register()
-            log("Registered launch agent")
+            if service.status == .notRegistered {
+                try service.register()
+                log("Registered launch agent")
+            }
             return true
         } catch {
             log("Error registering launch agent: \(error)")

@@ -49,7 +49,7 @@ struct EncodedSnapshot: Codable {
     let info: SnapshotInfo
     let pHash: String
     let ocrData: String?
-    
+
     init(data: Data?, timestamp: Int, info: SnapshotInfo, pHash: String, ocrData: String? = nil) {
         self.data = data
         self.timestamp = timestamp

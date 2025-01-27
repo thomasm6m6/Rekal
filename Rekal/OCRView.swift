@@ -14,7 +14,7 @@ struct OCRView: View {
                     let boundingBox = NormalizedRect(normalizedRect: result.normalizedRect)
                     let rect = boundingBox.toImageCoordinates(geometry.size, origin: .upperLeft)
                     Rectangle()
-                        .fill(isSelected ? .green : .white)
+                        .fill(isSelected ? .green : .accentColor)
                         .opacity(0.5)
                         .contentShape(Rectangle())
                         .frame(width: rect.width, height: rect.height)
@@ -38,7 +38,7 @@ struct OCRView: View {
         }
         // Without this, nothing appears until ocrResults != nil,
         // but ocrResults == nil until something appears
-        // TODO there must be a better solution
+        // TODO: there must be a better solution
         Rectangle()
             .frame(width: 0, height: 0)
             .onAppear {
@@ -46,7 +46,7 @@ struct OCRView: View {
             }
     }
 
-    // TODO save OCR data to daemon memory space
+    // TODO: save OCR data to daemon memory space
     func loadOCRResults(snapshot: Snapshot) {
         Task {
             do {

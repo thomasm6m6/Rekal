@@ -4,12 +4,12 @@ enum FilesError: Error {
     case nonexistentDirectory(String)
 }
 
-// TODO this is probably unsafe/wrong
+// TODO: this is probably unsafe/wrong
 class Files: @unchecked Sendable {
     var appSupportDir: URL
     var databaseFile: URL
 
-    // TODO rename to "shared"
+    // TODO: rename to "shared"
     // maybe: static let shared = Files()
     static let `default`: Files = {
         do {
@@ -28,7 +28,7 @@ class Files: @unchecked Sendable {
     }
 
     static func getAppSupportDir() throws -> URL {
-        let bundleIdentifier = "com.thomasm6m6.Rekal"  // TODO bundle.main.bundleIdentifier(?)
+        let bundleIdentifier = "com.thomasm6m6.Rekal"  // TODO: bundle.main.bundleIdentifier(?)
         guard
             let dir = FileManager.default.urls(
                 for: .applicationSupportDirectory, in: .userDomainMask
@@ -52,5 +52,5 @@ class Files: @unchecked Sendable {
         return dir
     }
 
-    // TODO Maybe functions to iterate over mp4s
+    // TODO: Maybe functions to iterate over mp4s
 }

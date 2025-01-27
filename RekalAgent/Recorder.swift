@@ -1,8 +1,8 @@
 import Foundation
 import CoreGraphics
-@preconcurrency import ScreenCaptureKit // TODO probably shouldn't use preconcurrency
+@preconcurrency import ScreenCaptureKit // TODO: probably shouldn't use preconcurrency
 
-// TODO ignore incognito chrome windows by default
+// TODO: ignore incognito chrome windows by default
 // FIXME:
 //   *** Terminating app due to uncaught exception 'NSInternalInconsistencyException',
 //   reason: 'NSScreen reconfig must only happen on the main thread.'
@@ -48,14 +48,17 @@ actor Recorder {
             return nil
         }
 
-        // FIXME one of the following two statements is throwing, *sometimes*. Not sure under what
+        // FIXME: one of the following two statements is throwing, *sometimes*. Not sure under what
         // conditions. Oddly, the error does not get printed anywhere.
         // or SCShareableContent.current(?)
+        log2("a")
         let content = try await SCShareableContent.excludingDesktopWindows(
             false, onScreenWindowsOnly: true)
+        log2("b")
         guard let display = content.displays.first else {
             throw RecordingError.infoError("No displays found")
         }
+        log2("c")
 
         for window in content.windows {
             if frontmostAppPID == window.owningApplication?.processID {
@@ -68,9 +71,9 @@ actor Recorder {
             throw RecordingError.infoError("Failed to get window info")
         }
 
-        // TODO make these configurable via GUI (UserDefaults?)
+        // TODO: make these configurable via GUI (UserDefaults?)
         let excludedApps: [String] = ["com.apple.FaceTime", "com.apple.Passwords"]
-        let excludedURLs: [String] = [] // TODO zoom.us, meet.jit.si, etc
+        let excludedURLs: [String] = [] // TODO: zoom.us, meet.jit.si, etc
 
         if info.appId != "" {
             for app in excludedApps {
@@ -89,7 +92,7 @@ actor Recorder {
             }
         }
 
-        // TODO exclude apps, and exclude the browser if the active url is blacklisted
+        // TODO: exclude apps, and exclude the browser if the active url is blacklisted
         // for the browser, get the specific window id containing blacklisted urls and
         // exclude that window
         let filter = SCContentFilter(

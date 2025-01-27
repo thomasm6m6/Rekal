@@ -2,11 +2,11 @@ import Foundation
 import ImageIO
 import OrderedCollections
 
-// TODO queue? (e.g. using GCD)
+// TODO: queue? (e.g. using GCD)
 class SnapshotData {
     private var snapshots = SnapshotList() // last 5-10 min of images
 
-    // TODO use e.g. private(set) instead of a getter method
+    // TODO: use e.g. private(set) instead of a getter method
     func get() -> SnapshotList {
         return snapshots
     }
@@ -22,7 +22,7 @@ class SnapshotData {
     }
 
     func getRecent() -> SnapshotList {
-        // TODO test whether this is fast at 600
+        // TODO: test whether this is fast at 600
         let keys = snapshots.keys.suffix(600)
         return keys.reduce(into: [:]) { $0[$1] = snapshots[$1] }
     }
