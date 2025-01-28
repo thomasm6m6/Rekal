@@ -10,6 +10,7 @@ enum ImageError: Error {
 // TODO: don't do this
 extension XPCSession: @unchecked @retroactive Sendable {}
 
+// TODO: rename this. it applies to xpc more than to the images
 actor ImageLoader {
     private var xpcSession: XPCSession?
 
@@ -25,8 +26,48 @@ actor ImageLoader {
         xpcSession?.cancel(reason: "Done")
     }
 
+    // TODO: abstract logic in this and the next function into a separate fn
+    func processNow() async throws {
+        guard let session = xpcSession else {
+            throw ImageError.xpcError("No XPC session available")
+        }
+
+        let request = XPCRequest(messageType: .controlCommand(.processImages))
+
+        let response = try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<XPCResponse, any Error>) in
+
+            do {
+                try session.send(request) { result in
+                    switch result {
+                    case .success(let reply):
+                        do {
+                            let response = try reply.decode(as: XPCResponse.self)
+                            continuation.resume(returning: response)
+                        } catch {
+                            continuation.resume(throwing: error)
+                        }
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    }
+                }
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+
+        switch response.reply {
+        case .didProcess:
+            log("Finished processing images")
+        case .error(let error):
+            log("Error processing images: \(error)")
+        default:
+            log("Unexpected reply")
+        }
+    }
+
     func loadImagesFromXPC() async throws -> SnapshotList {
-        guard let xpcSession = xpcSession else {
+        guard let session = xpcSession else {
             throw ImageError.xpcError("No XPC session available")
         }
 
@@ -34,8 +75,9 @@ actor ImageLoader {
 
         let response = try await withCheckedThrowingContinuation {
             (continuation: CheckedContinuation<XPCResponse, any Error>) in
+
             do {
-                try xpcSession.send(request) { result in
+                try session.send(request) { result in
                     switch result {
                     case .success(let reply):
                         do {
@@ -134,13 +176,22 @@ actor ImageLoader {
     }
 }
 
-// Update the ImageModel to use the ImageLoader
 @MainActor
 class ImageModel: ObservableObject {
     @Published var snapshots = SnapshotList()
     @Published var index = 0
 
     private let imageLoader = ImageLoader()
+
+    func processNow() {
+        Task {
+            do {
+                try await imageLoader.processNow()
+            } catch {
+                log("Error processing")
+            }
+        }
+    }
 
     func loadImages(searchText: String = "") {
         Task {

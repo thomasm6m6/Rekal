@@ -17,58 +17,17 @@ struct Toolbar: View {
         Spacer()
 
         Button("Process now") {
-//            processNow()
+            imageModel.processNow()
         }
 
         InfoButton(imageModel: imageModel)
-    }
-
-    func processNow() {
-        Task.detached {
-            do {
-                let xpcSession = try XPCSession(machService: "com.thomasm6m6.RekalAgent.xpc")
-                defer { xpcSession.cancel(reason: "Done") }
-
-                let request = XPCRequest(messageType: .controlCommand(.processImages))
-
-                let response = try await withCheckedThrowingContinuation {
-                    (continuation: CheckedContinuation<XPCResponse, any Error>) in
-                    do {
-                        try xpcSession.send(request) { result in
-                            switch result {
-                            case .success(let reply):
-                                do {
-                                    let response = try reply.decode(as: XPCResponse.self)
-                                    continuation.resume(returning: response)
-                                } catch {
-                                    continuation.resume(throwing: error)
-                                }
-                            case .failure(let error):
-                                continuation.resume(throwing: error)
-                            }
-                        }
-                    } catch {
-                        continuation.resume(throwing: error)
-                    }
-                }
-
-                switch response.reply {
-                case .didProcess:
-                    log("Processing succeeded")
-                case .error(let error):
-                    log("Processing error: \(error)")
-                default:
-                    log("Unexpected reply")
-                }
-            } catch {
-                log("Error: \(error)")
-            }
-        }
     }
 }
 
 struct NavView: View {
     @StateObject var imageModel: ImageModel
+    @State var textIndex = "0"
+    @State var isEnabled = false
 
     var body: some View {
         Button("Previous", systemImage: "chevron.left", action: imageModel.previousImage)
@@ -78,8 +37,50 @@ struct NavView: View {
             .disabled(imageModel.snapshots.isEmpty || imageModel.atLastImage)
 
         let count = imageModel.snapshots.count
-        Text("\(count == 0 ? 0 : imageModel.index + 1)/\(count)")
-            .font(.system(.body, design: .monospaced))
+        let updateTextIndex = {
+            textIndex = String(count == 0 ? 0 : imageModel.index + 1)
+        }
+        // TODO: alignment is wacky. Need to fix:
+        // - width of textfield
+        // - maybe leading padding of hstack
+        // - maybe space between each element inside hstack
+        // - truncation of last text element
+        // - maybe vertical alignment of text relative to arrows
+        HStack {
+            TextField("", text: $textIndex)
+//                .disabled(count == 0)
+                .font(.system(.body, design: .monospaced))
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.trailing)
+                .textFieldStyle(.plain)
+                .lineLimit(1)
+                .onAppear(perform: updateTextIndex)
+                .onChange(of: imageModel.index, updateTextIndex)
+                .onChange(of: count) {
+                    updateTextIndex()
+                    isEnabled = count > 0
+                }
+                .onSubmit {
+                    if let number = Int(textIndex), number > 0 && number < count - 1 {
+                        imageModel.index = number - 1
+                    } else {
+                        updateTextIndex()
+                    }
+                }
+                .allowsHitTesting(isEnabled)
+
+            Text("/")
+                .multilineTextAlignment(.center)
+                .foregroundColor(.secondary)
+
+            Text(String(count))
+                .font(.system(.body, design: .monospaced))
+                .multilineTextAlignment(.leading)
+                .lineLimit(1)
+                .foregroundColor(.secondary)
+
+            Spacer()
+        }
     }
 }
 

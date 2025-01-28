@@ -36,9 +36,6 @@ struct ContentView: View {
 
     @StateObject private var imageModel = ImageModel()
 
-//    @State private var snapshots = SnapshotList()
-//    @State private var index = 0
-
     private let backgroundColor = Color(red: 18/256, green: 18/256, blue: 18/256) // #121212
 
     var body: some View {
@@ -46,6 +43,8 @@ struct ContentView: View {
             backgroundColor
                 .ignoresSafeArea()
 
+            // FIXME: clicking outside the imageview (ie in the blank area of the window)
+            // makes it unresponsive to arrow keys
             NavigationStack {
                 VStack {
                     Spacer()
@@ -71,6 +70,18 @@ struct ContentView: View {
                 }
                 .onAppear {
                     imageModel.loadImages()
+                    isFocused = true
+                }
+                .focusable()
+                .focused($isFocused)
+                .focusEffectDisabled()
+                .onKeyPress(.leftArrow) {
+                    imageModel.previousImage()
+                    return .handled
+                }
+                .onKeyPress(.rightArrow) {
+                    imageModel.nextImage()
+                    return .handled
                 }
             }
             .toolbar {
@@ -81,20 +92,6 @@ struct ContentView: View {
         .onAppear {
             _ = LaunchManager.registerLoginItem()
             _ = LaunchManager.registerLaunchAgent()
-        }
-        .focusable()
-        .focused($isFocused)
-        .focusEffectDisabled()
-        .onAppear {
-            isFocused = true
-        }
-        .onKeyPress(.leftArrow) {
-            imageModel.previousImage()
-            return .handled
-        }
-        .onKeyPress(.rightArrow) {
-            imageModel.nextImage()
-            return .handled
         }
     }
 
