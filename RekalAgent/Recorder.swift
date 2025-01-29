@@ -72,8 +72,9 @@ actor Recorder {
         }
 
         // TODO: make these configurable via GUI (UserDefaults?)
-        let excludedApps: [String] = ["com.apple.FaceTime", "com.apple.Passwords"]
-        let excludedURLs: [String] = [] // TODO: zoom.us, meet.jit.si, etc
+        // also private browser windows
+        let excludedApps: [String] = ["com.apple.FaceTime", "com.apple.Passwords", "com.thomasm6m6.Rekal"]
+        let excludedURLs: [String] = [] // TODO: zoom.us, meet.jit.si, chrome://passwords, etc
 
         if info.appId != "" {
             for app in excludedApps {
