@@ -159,4 +159,45 @@ class Database {
 
         return (appIds, appNames, urls)
     }
+
+    func getTimestampList() throws -> [Int: TimestampObject] {
+        var objects: [Int: TimestampObject] = [:]
+        let startOfDay = Int(Calendar.current.startOfDay(for: Date.now)
+            .timeIntervalSince1970)
+        let query = snapshotTable.filter(snapshotTimestamp > startOfDay)
+        for row in try db.prepare(query) {
+            let timestamp = row[snapshotTimestamp]
+            let videoTimestamp = row[snapshotVideoTimestamp]
+
+            objects[timestamp] = TimestampObject(
+                timestamp: timestamp,
+                source: .disk(videoTimestamp: videoTimestamp)
+            )
+        }
+
+        return objects
+    }
+
+    func getVideoURL(for timestamp: Int) throws -> URL {
+        let query = videoTable.filter(videoTimestamp == timestamp)
+        let iterator = try db.prepare(query)
+        guard let row = iterator.first(where: { _ in true }) else {
+            throw DatabaseError.error("No video corresponding to timestamp \(timestamp)")
+        }
+
+        let url = URL(filePath: row[videoPath])
+        return url
+    }
+}
+
+struct TimestampObject {
+    var timestamp: Int
+    var source: SnapshotSource
+    var snapshot: Snapshot?
+}
+
+// Can/should this be put inside TimestampObject?
+enum SnapshotSource {
+    case disk(videoTimestamp: Int)
+    case xpc
 }

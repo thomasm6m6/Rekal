@@ -40,6 +40,7 @@ struct NavView: View {
         let updateTextIndex = {
             textIndex = String(count == 0 ? 0 : imageModel.index + 1)
         }
+
         // TODO: alignment is wacky. Need to fix:
         // - width of textfield
         // - maybe leading padding of hstack
@@ -54,6 +55,7 @@ struct NavView: View {
                 .multilineTextAlignment(.trailing)
                 .textFieldStyle(.plain)
                 .lineLimit(1)
+                .allowsHitTesting(isEnabled)
                 .onAppear(perform: updateTextIndex)
                 .onChange(of: imageModel.index, updateTextIndex)
                 .onChange(of: count) {
@@ -61,13 +63,25 @@ struct NavView: View {
                     isEnabled = count > 0
                 }
                 .onSubmit {
-                    if let number = Int(textIndex), number > 0 && number < count - 1 {
-                        imageModel.index = number - 1
-                    } else {
+                    if let number = Int(textIndex), number > 0 && number <= count {
+                        imageModel.setIndex(index: number - 1)
+                    }
+                    updateTextIndex()
+                }
+                .onKeyPress(.upArrow) {
+                    if let number = Int(textIndex), number + 1 <= count {
+                        imageModel.setIndex(index: number)
                         updateTextIndex()
                     }
+                    return .handled
                 }
-                .allowsHitTesting(isEnabled)
+                .onKeyPress(.downArrow) {
+                    if let number = Int(textIndex), number - 1 > 0 {
+                        imageModel.setIndex(index: number - 2)
+                        updateTextIndex()
+                    }
+                    return .handled
+                }
 
             Text("/")
                 .multilineTextAlignment(.center)
@@ -78,6 +92,7 @@ struct NavView: View {
                 .multilineTextAlignment(.leading)
                 .lineLimit(1)
                 .foregroundColor(.secondary)
+                .frame(width: 40)
 
             Spacer()
         }
@@ -123,6 +138,7 @@ struct SearchBar: View {
     }
 }
 
+// TODO: include info about e.g. the video file containing the image, if applicable
 struct InfoButton: View {
     @StateObject var imageModel: ImageModel
     @State private var isInfoShowing = false
@@ -133,62 +149,60 @@ struct InfoButton: View {
         }
         .disabled(imageModel.snapshots.isEmpty)
         .popover(isPresented: $isInfoShowing, arrowEdge: .bottom) {
-            let key = imageModel.snapshots.keys[imageModel.index]
-            if let snapshot = imageModel.snapshots[key] {
-                let info = snapshot.info
+            let snapshot = imageModel.snapshots[imageModel.index]
+            let info = snapshot.info
 
-                // TODO: multiline text where needed (e.g. window name)
-                Grid(alignment: .leading) {
+            // TODO: multiline text where needed (e.g. window name)
+            Grid(alignment: .leading) {
+                GridRow {
+                    Text("Time")
+
+                    let date = Date(timeIntervalSince1970: TimeInterval(snapshot.timestamp))
+                    let format = Date.FormatStyle(date: .abbreviated, time: .shortened)
+                        .attributedStyle
+                    Text(date, format: format)
+                        .textSelection(.enabled)
+                }
+
+                if let windowName = info.windowName {
                     GridRow {
-                        Text("Time")
+                        Text("Window name")
 
-                        let date = Date(timeIntervalSince1970: TimeInterval(snapshot.timestamp))
-                        let format = Date.FormatStyle(date: .abbreviated, time: .shortened)
-                            .attributedStyle
-                        Text(date, format: format)
+                        Text(windowName)
                             .textSelection(.enabled)
-                    }
-
-                    if let windowName = info.windowName {
-                        GridRow {
-                            Text("Window name")
-
-                            Text(windowName)
-                                .textSelection(.enabled)
 //                                .lineLimit(3)
-                        }
-                    }
-
-                    if let appName = info.appName {
-                        GridRow {
-                            Text("App name")
-
-                            Text(appName)
-                                .textSelection(.enabled)
-                        }
-                    }
-
-                    if let appId = info.appId {
-                        GridRow {
-                            Text("App ID")
-
-                            Text(appId)
-                                .textSelection(.enabled)
-                        }
-                    }
-
-                    if let url = info.url {
-                        GridRow {
-                            Text("URL")
-
-                            Text(url)
-                                .textSelection(.enabled)
-                        }
                     }
                 }
-                .padding()
-                .frame(maxWidth: 400)
+
+                if let appName = info.appName {
+                    GridRow {
+                        Text("App name")
+
+                        Text(appName)
+                            .textSelection(.enabled)
+                    }
+                }
+
+                if let appId = info.appId {
+                    GridRow {
+                        Text("App ID")
+
+                        Text(appId)
+                            .textSelection(.enabled)
+                    }
+                }
+
+                if let url = info.url {
+                    GridRow {
+                        Text("URL")
+
+                        Text(url)
+                            .textSelection(.enabled)
+                    }
+                }
             }
+            .padding()
+            .frame(maxWidth: 400)
         }
     }
 }

@@ -4,7 +4,7 @@ import OrderedCollections
 
 // TODO: queue? (e.g. using GCD)
 class SnapshotData {
-    private var snapshots = SnapshotList() // last 5-10 min of images
+    private var snapshots = SnapshotList()
 
     // TODO: use e.g. private(set) instead of a getter method
     func get() -> SnapshotList {
