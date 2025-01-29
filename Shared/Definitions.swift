@@ -1,10 +1,5 @@
 import Foundation
 import CoreGraphics
-import OrderedCollections
-
-typealias SnapshotList = OrderedDictionary<Int, Snapshot>
-typealias VideoList = OrderedDictionary<Int, Video>
-typealias EncodedSnapshotList = OrderedDictionary<Int, EncodedSnapshot>
 
 struct SnapshotInfo: Codable, Sendable {
     let windowId: Int

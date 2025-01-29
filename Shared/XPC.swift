@@ -29,7 +29,7 @@ enum Query: Codable {
 }
 
 enum Reply: Codable {
-    case snapshots(EncodedSnapshotList)
+    case snapshots([EncodedSnapshot])
     case status(Status)
     case imageCount(Int)
     case didProcess
@@ -41,30 +41,30 @@ enum Status: Codable {
     case stopped
 }
 
-func encodeSnapshots(_ snapshots: SnapshotList) -> EncodedSnapshotList {
-    var encodedSnapshots: EncodedSnapshotList = [:]
-    for (key, value) in snapshots {
+func encodeSnapshots(_ snapshots: [Snapshot]) -> [EncodedSnapshot] {
+    var encodedSnapshots: [EncodedSnapshot] = []
+    for snapshot in snapshots {
         var data: Data?
-        if let image = value.image {
+        if let image = snapshot.image {
             data = image.png
         }
-        encodedSnapshots[key] = EncodedSnapshot(
+        encodedSnapshots.append(EncodedSnapshot(
             data: data,
-            timestamp: value.timestamp,
-            info: value.info,
-            pHash: value.pHash,
-            ocrData: value.ocrData
-        )
+            timestamp: snapshot.timestamp,
+            info: snapshot.info,
+            pHash: snapshot.pHash,
+            ocrData: snapshot.ocrData
+        ))
     }
     return encodedSnapshots
 }
 
-func decodeSnapshots(_ encodedSnapshots: EncodedSnapshotList) -> SnapshotList {
-    var snapshots: SnapshotList = [:]
-    for (key, value) in encodedSnapshots {
+func decodeSnapshots(_ encodedSnapshots: [EncodedSnapshot]) -> [Snapshot] {
+    var snapshots: [Snapshot] = []
+    for snapshot in encodedSnapshots {
         var cgImage: CGImage?
 
-        if let data = value.data, let provider = CGDataProvider(data: data as NSData) {
+        if let data = snapshot.data, let provider = CGDataProvider(data: data as NSData) {
             cgImage = CGImage(
                 pngDataProviderSource: provider,
                 decode: nil,
@@ -73,18 +73,18 @@ func decodeSnapshots(_ encodedSnapshots: EncodedSnapshotList) -> SnapshotList {
             )
         }
 
-        snapshots[key] = Snapshot(
+        snapshots.append(Snapshot(
             image: cgImage,
-            timestamp: value.timestamp,
-            info: value.info,
-            pHash: value.pHash,
-            ocrData: value.ocrData
-        )
+            timestamp: snapshot.timestamp,
+            info: snapshot.info,
+            pHash: snapshot.pHash,
+            ocrData: snapshot.ocrData
+        ))
     }
     return snapshots
 }
 
-func buildListFromResponse(dictionary: XPCDictionary) -> SnapshotList? {
+func buildListFromResponse(dictionary: XPCDictionary) -> [Snapshot]? {
     return nil
 }
 

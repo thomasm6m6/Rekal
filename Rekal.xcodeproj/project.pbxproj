@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		9258E2472D4200010099ABB8 /* OrderedCollections in Frameworks */ = {isa = PBXBuildFile; productRef = 9258E2462D4200010099ABB8 /* OrderedCollections */; };
 		9258E2542D44A0240099ABB8 /* Database.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9258E2532D44A0240099ABB8 /* Database.swift */; };
 		9258E2552D44A0240099ABB8 /* Database.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9258E2532D44A0240099ABB8 /* Database.swift */; };
 		9258E2572D44A08C0099ABB8 /* XPC.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9258E2562D44A08C0099ABB8 /* XPC.swift */; };
@@ -18,7 +17,6 @@
 		9258E25E2D44A15B0099ABB8 /* Files.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9258E25C2D44A15B0099ABB8 /* Files.swift */; };
 		925D41BB2D3F7AD800690B22 /* Definitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925D41B82D3F7A0D00690B22 /* Definitions.swift */; };
 		925D41BD2D3F7B2400690B22 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 925D41BC2D3F7B2400690B22 /* SQLite */; };
-		925D41D52D3F840A00690B22 /* OrderedCollections in Frameworks */ = {isa = PBXBuildFile; productRef = 925D41D42D3F840A00690B22 /* OrderedCollections */; };
 		925D41D62D3F841A00690B22 /* Definitions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925D41B82D3F7A0D00690B22 /* Definitions.swift */; };
 		925D41E02D3F85E700690B22 /* SQLite in Frameworks */ = {isa = PBXBuildFile; productRef = 925D41DF2D3F85E700690B22 /* SQLite */; };
 		925D41E12D3F865C00690B22 /* RekalAgent in Resources */ = {isa = PBXBuildFile; fileRef = 925D41C42D3F82D400690B22 /* RekalAgent */; };
@@ -112,7 +110,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				9258E2472D4200010099ABB8 /* OrderedCollections in Frameworks */,
 				925D41BD2D3F7B2400690B22 /* SQLite in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -122,7 +119,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				925D41E02D3F85E700690B22 /* SQLite in Frameworks */,
-				925D41D52D3F840A00690B22 /* OrderedCollections in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -193,7 +189,6 @@
 			name = Rekal;
 			packageProductDependencies = (
 				925D41BC2D3F7B2400690B22 /* SQLite */,
-				9258E2462D4200010099ABB8 /* OrderedCollections */,
 			);
 			productName = Rekal;
 			productReference = 925D40972D3EDDC200690B22 /* Rekal.app */;
@@ -216,7 +211,6 @@
 			);
 			name = RekalAgent;
 			packageProductDependencies = (
-				925D41D42D3F840A00690B22 /* OrderedCollections */,
 				925D41DF2D3F85E700690B22 /* SQLite */,
 			);
 			productName = RekalAgent;
@@ -252,7 +246,6 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				925D40E52D3EE0FF00690B22 /* XCRemoteSwiftPackageReference "SQLite" */,
-				925D41D32D3F840A00690B22 /* XCRemoteSwiftPackageReference "swift-collections" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 925D40982D3EDDC200690B22 /* Products */;
@@ -563,31 +556,13 @@
 				minimumVersion = 0.15.3;
 			};
 		};
-		925D41D32D3F840A00690B22 /* XCRemoteSwiftPackageReference "swift-collections" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/apple/swift-collections.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 1.1.4;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		9258E2462D4200010099ABB8 /* OrderedCollections */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 925D41D32D3F840A00690B22 /* XCRemoteSwiftPackageReference "swift-collections" */;
-			productName = OrderedCollections;
-		};
 		925D41BC2D3F7B2400690B22 /* SQLite */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 925D40E52D3EE0FF00690B22 /* XCRemoteSwiftPackageReference "SQLite" */;
 			productName = SQLite;
-		};
-		925D41D42D3F840A00690B22 /* OrderedCollections */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 925D41D32D3F840A00690B22 /* XCRemoteSwiftPackageReference "swift-collections" */;
-			productName = OrderedCollections;
 		};
 		925D41DF2D3F85E700690B22 /* SQLite */ = {
 			isa = XCSwiftPackageProductDependency;

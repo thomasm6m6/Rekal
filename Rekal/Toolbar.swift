@@ -12,12 +12,16 @@ struct Toolbar: View {
 
         Spacer()
 
-        SearchBar()
+        SearchBar(imageModel: imageModel)
 
         Spacer()
 
         Button("Process now") {
             imageModel.processNow()
+        }
+
+        Button("Delete", systemImage: "trash") {
+            //
         }
 
         InfoButton(imageModel: imageModel)
@@ -99,13 +103,16 @@ struct NavView: View {
     }
 }
 
+struct SearchQuery {
+    var text: String
+    var options: SearchOptions
+}
+
 struct SearchBar: View {
     @State var isShowingPopover = false
     @AppStorage("fullText") var fullText = false
     @State var searchText = ""
-//    var xpcManager: XPCManager
-
-//    @FocusState var isSearchFocused: Bool
+    @StateObject var imageModel: ImageModel
 
     var body: some View {
         // FIXME: doesn't appear in overflow menu
@@ -114,17 +121,14 @@ struct SearchBar: View {
         // TODO: make search box stand out somehow (rgb(30,30,30) background)
         TextField("Search...", text: $searchText)
             .textFieldStyle(.roundedBorder)
-        //                    .background(.red.opacity(0.5))
-        //                    .clipShape(RoundedRectangle(cornerRadius: 6))
             .frame(width: 300)
             .onSubmit {
-                let options = SearchOptions(
-                    fullText: fullText
+                let query = SearchQuery(
+                    text: searchText,
+                    options: SearchOptions(fullText: fullText)
                 )
-//                frameManager.extractFrames(search: searchText, options: options, xpcManager: xpcManager)
+                imageModel.loadImages(query: query)
             }
-//            .focusable()
-//            .focused(isSearchFocused)
 
         Button("Search options", systemImage: "slider.horizontal.3") {
             isShowingPopover = true

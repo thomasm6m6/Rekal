@@ -83,7 +83,7 @@ actor Processor {
             return
         }
 
-        guard let firstImage = snapshots.values.first?.image else {
+        guard let firstImage = snapshots.first?.image else {
             log("No snapshots to encode")
             return
         }
@@ -101,13 +101,15 @@ actor Processor {
             kCVPixelBufferCGBitmapContextCompatibilityKey as String: true,
         ]
 
-        for (timestamp, var snapshot) in snapshots {
+        var processedTimestamps: [Int] = []
+
+        for var snapshot in snapshots {
             guard let image = snapshot.image else {
                 throw ProcessingError.error("Cannot get image")
             }
-            log("Processing timestamp: \(timestamp)")
+            log("Processing timestamp: \(snapshot.timestamp)")
 
-            let binTimestamp = timestamp / interval * interval
+            let binTimestamp = snapshot.timestamp / interval * interval
             if binTimestamp >= maxTimestamp {
                 break
             }
@@ -158,7 +160,11 @@ actor Processor {
 
             snapshot.ocrData = try await performOCR(on: image)
             try database.insertSnapshot(snapshot, videoTimestamp: binTimestamp)
-            data.remove(for: timestamp)
+            processedTimestamps.append(snapshot.timestamp)
+        }
+
+        for timestamp in processedTimestamps {
+            try data.remove(at: timestamp)
         }
 
         // TODO: async

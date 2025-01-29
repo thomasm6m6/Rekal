@@ -91,21 +91,22 @@ class Database {
         ))
     }
 
-    func videosBetween(minTime: Int, maxTime: Int) throws -> VideoList {
-        var videos = VideoList()
+    func videosBetween(minTime: Int, maxTime: Int) throws -> [Video] {
+        var videos: [Video] = []
         let query = videoTable.filter(videoTimestamp >= minTime && videoTimestamp < maxTime)
+        print(minTime, maxTime)
         for row in try db.prepare(query) {
-            let timestamp = row[videoTimestamp]
-            videos[timestamp] = Video(
-                timestamp: timestamp,
+            videos.append(Video(
+                timestamp: row[videoTimestamp],
                 url: URL(filePath: row[videoPath])
-            )
+            ))
         }
+        print(videos)
         return videos
     }
 
-    func snapshotsInVideo(videoTimestamp: Int) throws -> SnapshotList {
-        var snapshots = SnapshotList()
+    func snapshotsInVideo(videoTimestamp: Int) throws -> [Snapshot] {
+        var snapshots: [Snapshot] = []
         let query = snapshotTable.filter(snapshotVideoTimestamp == videoTimestamp)
         for row in try db.prepare(query) {
             let timestamp = row[snapshotTimestamp]
@@ -122,13 +123,13 @@ class Database {
                 url: row[snapshotURL]
             )
 
-            snapshots[timestamp] = Snapshot(
+            snapshots.append(Snapshot(
                 image: nil,
                 timestamp: timestamp,
                 info: info,
                 pHash: row[snapshotPHash],
                 ocrData: row[snapshotOCRData]
-            )
+            ))
         }
 
         return snapshots
