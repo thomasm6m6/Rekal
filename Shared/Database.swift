@@ -114,7 +114,7 @@ class Database {
 
         var count = 0
         let query2 = snapshotTable.filter(videoTimestamps.contains(snapshotVideoTimestamp))
-        for row in try db.prepare(query2) {
+        for _ in try db.prepare(query2) {
             count += 1
         }
         return count

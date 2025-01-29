@@ -3,13 +3,13 @@ import SwiftUI
 struct SettingsView: View {
     var body: some View {
         VStack {
-            Text("Blocked apps")
-
-            EditList()
-
-            Text("Blocked URLs")
-
-            EditList()
+//            Text("Blocked apps")
+//
+//            EditList()
+//
+//            Text("Blocked URLs")
+//
+//            EditList()
 
             Button("Unregister launch agent") {
                 _ = LaunchManager.unregisterLaunchAgent()

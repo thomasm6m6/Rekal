@@ -10,6 +10,7 @@ enum ImageError: Error {
 extension XPCSession: @unchecked @retroactive Sendable {}
 
 // TODO: rename/restructure this. it applies to xpc more than to the images
+// Does ImageLoader need to be an actor?
 actor ImageLoader {
     private var xpcSession: XPCSession?
 

@@ -19,9 +19,9 @@ struct Toolbar: View {
             imageModel.processNow()
         }
 
-        Button("Delete", systemImage: "trash") {
-            // TODO
-        }
+//        Button("Delete", systemImage: "trash") {
+//            // TODO
+//        }
 
         InfoButton(imageModel: imageModel)
     }

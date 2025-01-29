@@ -35,10 +35,10 @@ struct RekalApp: App {
         }
 
         MenuBarExtra {
-            Button(isRecording ? "Pause recording" : "Resume recording") {
-                isRecording = !isRecording
-                // TODO
-            }
+//            Button(isRecording ? "Pause recording" : "Resume recording") {
+//                isRecording = !isRecording
+//                // TODO
+//            }
 
             OpenWindowButton()
 
