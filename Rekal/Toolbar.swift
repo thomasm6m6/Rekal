@@ -3,7 +3,6 @@ import SwiftUI
 struct Toolbar: View {
     @StateObject var imageModel: ImageModel
     @State var isInfoShowing = false
-//    var xpcManager = XPCManager.shared
 
     @FocusState var isSearchFocused: Bool
 
@@ -21,7 +20,7 @@ struct Toolbar: View {
         }
 
         Button("Delete", systemImage: "trash") {
-            //
+            // TODO
         }
 
         InfoButton(imageModel: imageModel)
@@ -40,7 +39,8 @@ struct NavView: View {
         Button("Next", systemImage: "chevron.right", action: imageModel.nextImage)
             .disabled(imageModel.snapshots.isEmpty || imageModel.atLastImage)
 
-        let count = imageModel.snapshots.count
+//        let count = imageModel.snapshots.count
+        let count = imageModel.displayCount
         let updateTextIndex = {
             textIndex = String(count == 0 ? 0 : imageModel.index + 1)
         }

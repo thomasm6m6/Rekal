@@ -25,6 +25,45 @@ actor ImageLoader {
         xpcSession?.cancel(reason: "Done")
     }
 
+    func getImageCountFromXPC() async throws -> Int {
+        guard let session = xpcSession else {
+            throw ImageError.xpcError("No XPC session available")
+        }
+
+        let request = XPCRequest(messageType: .statusQuery(.imageCount))
+
+        let response = try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<XPCResponse, any Error>) in
+
+            do {
+                try session.send(request) { result in
+                    switch result {
+                    case .success(let reply):
+                        do {
+                            let response = try reply.decode(as: XPCResponse.self)
+                            continuation.resume(returning: response)
+                        } catch {
+                            continuation.resume(throwing: error)
+                        }
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    }
+                }
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+
+        switch response.reply {
+        case .imageCount(let count):
+            return count
+        case .error(let error):
+            throw ImageError.xpcError("Error: \(error)")
+        default:
+            throw ImageError.xpcError("Unexpected reply")
+        }
+    }
+
     // TODO: abstract logic in this and the next function into a separate fn
     func processNow() async throws {
         guard let session = xpcSession else {
@@ -113,6 +152,7 @@ actor ImageLoader {
 class ImageModel: ObservableObject {
     @Published var snapshots: [Snapshot] = []
     @Published var index = 0
+    @Published var displayCount = 0
 
     private let imageLoader = ImageLoader()
 
@@ -143,7 +183,6 @@ class ImageModel: ObservableObject {
     func loadImagesFromDisk(search: Search) async throws {
         let db = try Database()
         let videos = try db.videosBetween(minTime: search.minTimestamp, maxTime: search.maxTimestamp)
-        print(videos)
 
         try await withThrowingTaskGroup(of: Void.self) { group in
             for video in videos {
@@ -208,14 +247,22 @@ class ImageModel: ObservableObject {
     }
 
     func loadImages(query: SearchQuery? = nil) {
-        Task {
-            let searchText =
-                if let query = query { query.text }
-                else { "" }
-            let search = Search.parse(text: searchText)
-            print(search)
+        let searchText =
+            if let query = query { query.text }
+            else { "" }
+        let search = Search.parse(text: searchText)
 
+        snapshots = []
+
+        Task {
             do {
+                let imageCountXPC = try await imageLoader.getImageCountFromXPC()
+                let imageCountDisk = try getImageCountFromDisk(
+                    minTimestamp: search.minTimestamp,
+                    maxTimestamp: search.maxTimestamp)
+
+                self.displayCount = imageCountXPC + imageCountDisk
+
                 let xpcSnapshots = try await imageLoader.loadImagesFromXPC()
                 for snapshot in xpcSnapshots {
                     self.insert(snapshot: snapshot)
@@ -225,6 +272,16 @@ class ImageModel: ObservableObject {
             } catch {
                 print("Error loading images: \(error)")
             }
+        }
+    }
+
+    func getImageCountFromDisk(minTimestamp: Int, maxTimestamp: Int) throws -> Int {
+        do {
+            let db = try Database()
+
+            return try db.getImageCount(
+                minTimestamp: minTimestamp,
+                maxTimestamp: maxTimestamp)
         }
     }
 

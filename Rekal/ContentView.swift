@@ -132,7 +132,7 @@ struct ContentView: View {
                         }
                         .padding()
                     } else {
-                        Text("No images found")
+                        ProgressView()
                     }
 
                     Spacer()

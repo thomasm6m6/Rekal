@@ -91,18 +91,33 @@ class Database {
         ))
     }
 
+    // TODO: rename to minTimestamp:,maxTimestamp:
     func videosBetween(minTime: Int, maxTime: Int) throws -> [Video] {
         var videos: [Video] = []
         let query = videoTable.filter(videoTimestamp >= minTime && videoTimestamp < maxTime)
-        print(minTime, maxTime)
         for row in try db.prepare(query) {
             videos.append(Video(
                 timestamp: row[videoTimestamp],
                 url: URL(filePath: row[videoPath])
             ))
         }
-        print(videos)
         return videos
+    }
+
+    // TODO: improve
+    func getImageCount(minTimestamp: Int, maxTimestamp: Int) throws -> Int {
+        var videoTimestamps: [Int] = []
+        let query = videoTable.filter(videoTimestamp >= minTimestamp && videoTimestamp < maxTimestamp)
+        for row in try db.prepare(query) {
+            videoTimestamps.append(row[videoTimestamp])
+        }
+
+        var count = 0
+        let query2 = snapshotTable.filter(videoTimestamps.contains(snapshotVideoTimestamp))
+        for row in try db.prepare(query2) {
+            count += 1
+        }
+        return count
     }
 
     func snapshotsInVideo(videoTimestamp: Int) throws -> [Snapshot] {
