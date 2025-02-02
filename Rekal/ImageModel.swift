@@ -159,6 +159,8 @@ class ImageModel: ObservableObject {
     @Published var snapshotCount = 0 // total number of snapshots
     @Published var totalIndex = 0 // index from [0, snapshotCount)
 
+//    var decoderXPCSession = try? XPCSession(xpcService: "com.thomasm6m6.RekalDecoder")
+//    var decoderXPCSession: XPCSession? = nil
     private let imageLoader = ImageLoader()
     private var isLoading = false
 
@@ -232,10 +234,13 @@ class ImageModel: ObservableObject {
     }
 
     func loadNextImages() {
+        if isLoading { return }
         let max = 30
         Task {
             isLoading = true
             do {
+                // snapshots.count seems to stay at the same value all the time (e.g. 108). Why?
+                print("loadNextImages: index = \(index), snapshots.count = \(snapshots.count)")
                 var count = 0
                 for timestamps in timestamps[timestampIndex..<timestamps.count] {
                     let newSnapshots = if timestamps.source == .xpc {
@@ -258,19 +263,19 @@ class ImageModel: ObservableObject {
                 self.snapshots.removeFirst(min(index, count))
                 self.index -= min(index, count)
             } catch {
-                log("Error in addImages: \(error)")
+                log("Error in loadNextImages: \(error)")
             }
             isLoading = false
         }
     }
 
-    // FIXME: there is probably an OOB bug here where the solution is analogous to min(index, count) above.
-    // I'm too tired to figure it out rn though.
     func loadPreviousImages() {
+        if isLoading { return }
         let max = 30
         Task {
             isLoading = true
             do {
+                print("loadPreviousImages: index = \(index), snapshots.count = \(snapshots.count)")
                 var count = 0
                 for timestamps in timestamps[0..<timestampIndex].reversed() {
                     let newSnapshots = if timestamps.source == .xpc {
@@ -298,7 +303,11 @@ class ImageModel: ObservableObject {
         }
     }
 
+    // TODO: bug: if load{Next,Previous}Images is running when this function is called (via the search bar), it will not execute
+    // Should probably put all three functions in an actor
     func loadImages(query: SearchQuery? = nil) {
+        if isLoading { return }
+
         let searchText = query?.text ?? ""
         let search = Search.parse(text: searchText)
 
@@ -307,7 +316,7 @@ class ImageModel: ObservableObject {
             do {
                 let xpcTimestamps = try await imageLoader.getTimestamps(from: search.minTimestamp, to: search.maxTimestamp)
                 let diskTimestamps = try getTimestamps(from: search.minTimestamp, to: search.maxTimestamp)
-                timestamps = xpcTimestamps + diskTimestamps
+                timestamps = (xpcTimestamps + diskTimestamps).sorted { $0.block < $1.block }
 
                 snapshotCount = timestamps.reduce(0) { $0 + $1.count }
 
@@ -315,7 +324,7 @@ class ImageModel: ObservableObject {
                 timestampIndex = 0
                 for timestamps in timestamps {
                     let newSnapshots = if timestamps.source == .xpc {
-                        try await imageLoader.loadImagesFromXPC(timestamps: timestamps)
+                        [Snapshot]() //try await imageLoader.loadImagesFromXPC(timestamps: timestamps)
                     } else {
                         try await loadImagesFromDisk(timestamps: timestamps)
                     }
@@ -324,10 +333,12 @@ class ImageModel: ObservableObject {
                         snapshots.append(snapshot)
                     }
                     timestampIndex += 1
-                    if snapshots.count > 50 {
+                    if snapshots.count > 100 {
                         break
                     }
                 }
+
+                print("loadImages: index = \(index), snapshots.count = \(snapshots.count)")
             } catch {
                 print("Error loading images: \(error.localizedDescription)")
             }
@@ -345,14 +356,13 @@ class ImageModel: ObservableObject {
         }
     }
 
-    // FIXME: crashes at last image
     func nextImage() {
         Task {
-            if !self.atLastImage {
+            if self.index < snapshots.count - 1 && self.totalIndex < snapshotCount - 1  {
                 self.index += 1
                 self.totalIndex += 1
 
-                if !isLoading && self.index > self.snapshots.count - 30 {
+                if self.index > self.snapshots.count - 30 {
                     self.loadNextImages()
                 }
             }
@@ -361,11 +371,11 @@ class ImageModel: ObservableObject {
 
     func previousImage() {
         Task {
-            if !self.atFirstImage {
+            if self.index > 0 && self.totalIndex > 0 {
                 self.index -= 1
                 self.totalIndex -= 1
 
-                if !isLoading && self.index < 30 {
+                if self.index < 30 {
                     self.loadPreviousImages()
                 }
             }

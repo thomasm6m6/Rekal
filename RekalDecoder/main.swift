@@ -39,7 +39,7 @@ func performTask(with message: XPCReceivedMessage) -> Encodable? {
                 let encodedSnapshots = encodeSnapshots(snapshots)
                 result = DecodeResponse(snapshots: encodedSnapshots)
             } catch {
-                log2("XPC Service: Error: \(error)")
+                log2("XPC Service error: \(error)")
             }
             semaphore.signal()
         }
