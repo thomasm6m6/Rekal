@@ -159,8 +159,6 @@ class ImageModel: ObservableObject {
     @Published var snapshotCount = 0 // total number of snapshots
     @Published var totalIndex = 0 // index from [0, snapshotCount)
 
-//    var decoderXPCSession = try? XPCSession(xpcService: "com.thomasm6m6.RekalDecoder")
-//    var decoderXPCSession: XPCSession? = nil
     private let imageLoader = ImageLoader()
     private var isLoading = false
 
@@ -248,10 +246,7 @@ class ImageModel: ObservableObject {
                     } else {
                         try await loadImagesFromDisk(timestamps: timestamps)
                     }
-                    // snapshots.insert(contentsOf: newSnapshots, at: snapshots.count)
-                    for snapshot in newSnapshots {
-                        snapshots.append(snapshot)
-                    }
+                    snapshots.insert(contentsOf: newSnapshots, at: snapshots.count)
                     timestampIndex += 1
                     count += newSnapshots.count
                     if count + snapshots.count >= max + 100 {
@@ -283,11 +278,8 @@ class ImageModel: ObservableObject {
                     } else {
                         try await loadImagesFromDisk(timestamps: timestamps)
                     }
-                    // snapshots.insert(contentsOf: newSnapshots, at: 0)
-                    for snapshot in newSnapshots.reversed() {
-                        self.index += 1
-                        snapshots.insert(snapshot, at: 0)
-                    }
+                    snapshots.insert(contentsOf: newSnapshots, at: 0)
+                    index += newSnapshots.count
                     timestampIndex -= 1
                     count += newSnapshots.count
                     if count + snapshots.count >= max + 100 {
@@ -324,14 +316,11 @@ class ImageModel: ObservableObject {
                 timestampIndex = 0
                 for timestamps in timestamps {
                     let newSnapshots = if timestamps.source == .xpc {
-                        [Snapshot]() //try await imageLoader.loadImagesFromXPC(timestamps: timestamps)
+                        try await imageLoader.loadImagesFromXPC(timestamps: timestamps)
                     } else {
                         try await loadImagesFromDisk(timestamps: timestamps)
                     }
-                    // snapshots.insert(contentsOf: newSnapshots, at: snapshots.count)
-                    for snapshot in newSnapshots {
-                        snapshots.append(snapshot)
-                    }
+                    snapshots.insert(contentsOf: newSnapshots, at: snapshots.count)
                     timestampIndex += 1
                     if snapshots.count > 100 {
                         break
@@ -356,6 +345,7 @@ class ImageModel: ObservableObject {
         }
     }
 
+    // FIXME: sometimes stops before totalIndex = snapshotCount-1
     func nextImage() {
         Task {
             if self.index < snapshots.count - 1 && self.totalIndex < snapshotCount - 1  {
