@@ -14,54 +14,21 @@ extension XPCSession: @unchecked @retroactive Sendable {}
 actor ImageLoader {
     private var xpcSession: XPCSession?
 
-    init() {
-        do {
-            xpcSession = try XPCSession(machService: "com.thomasm6m6.RekalAgent.xpc")
-        } catch {
-            print("Failed to initialize XPC session: \(error)")
-        }
-    }
+    init() {}
 
     deinit {
         xpcSession?.cancel(reason: "Done")
     }
 
-    func getImageCountFromXPC() async throws -> Int {
-        guard let session = xpcSession else {
-            throw ImageError.xpcError("No XPC session available")
-        }
-
-        let request = XPCRequest(messageType: .statusQuery(.imageCount))
-
-        let response = try await withCheckedThrowingContinuation {
-            (continuation: CheckedContinuation<XPCResponse, any Error>) in
-
-            do {
-                try session.send(request) { result in
-                    switch result {
-                    case .success(let reply):
-                        do {
-                            let response = try reply.decode(as: XPCResponse.self)
-                            continuation.resume(returning: response)
-                        } catch {
-                            continuation.resume(throwing: error)
-                        }
-                    case .failure(let error):
-                        continuation.resume(throwing: error)
-                    }
-                }
-            } catch {
-                continuation.resume(throwing: error)
-            }
-        }
-
-        switch response.reply {
-        case .imageCount(let count):
-            return count
-        case .error(let error):
-            throw ImageError.xpcError("Error: \(error)")
-        default:
-            throw ImageError.xpcError("Unexpected reply")
+    func activate() {
+        do {
+            xpcSession = try XPCSession(
+                machService: "com.thomasm6m6.RekalAgent.xpc"
+                // TODO: would like to use options: .inactive, but can't solve the concurrency error
+                // solution is probably either nonisolated(unsafe) or to run on main actor
+            )
+        } catch {
+            print("Failed to initialize XPC session: \(error.localizedDescription)")
         }
     }
 
@@ -105,13 +72,15 @@ actor ImageLoader {
         }
     }
 
-    func loadImagesFromXPC() async throws -> [Snapshot] {
+    // FIXME: not loading from XPC
+    func loadImagesFromXPC(timestamps: TimestampList) async throws -> [Snapshot] {
+        guard timestamps.count > 0 else { return [] }
         guard let session = xpcSession else {
             throw ImageError.xpcError("No XPC session available")
         }
 
-        let request = XPCRequest(messageType: .fetchImages)
-
+        // FIXME: ignoring search parameters. should use the timestamps passed as argument (also fix in loadImagesFromDisk)
+        let request = XPCRequest(messageType: .fetchImagesFromRange(minTimestamp: timestamps.block, maxTimestamp: timestamps.block + 300))
         let response = try await withCheckedThrowingContinuation {
             (continuation: CheckedContinuation<XPCResponse, any Error>) in
 
@@ -142,8 +111,40 @@ actor ImageLoader {
         }
     }
 
-    func getTimestampsFromXPC() async throws -> [Int: TimestampObject] {
-        return [:]
+    func getTimestamps(from minTimestamp: Int, to maxTimestamp: Int) async throws -> [TimestampList] {
+        guard let session = xpcSession else {
+            throw ImageError.xpcError("No XPC session available")
+        }
+
+        let request = XPCRequest(messageType: .getTimestampBlocks(min: minTimestamp, max: maxTimestamp))
+        let response = try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<XPCResponse, any Error>) in
+
+            do {
+                try session.send(request) { result in
+                    switch result {
+                    case .success(let reply):
+                        do {
+                            let response = try reply.decode(as: XPCResponse.self)
+                            continuation.resume(returning: response)
+                        } catch {
+                            continuation.resume(throwing: error)
+                        }
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    }
+                }
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+
+        switch response.reply {
+        case .timestampBlocks(let timestamps):
+            return timestamps
+        default:
+            throw ImageError.xpcError("Unexpected response")
+        }
     }
 }
 
@@ -151,11 +152,19 @@ actor ImageLoader {
 // TODO: get snapshots via XPC in chunks
 @MainActor
 class ImageModel: ObservableObject {
-    @Published var snapshots: [Snapshot] = []
-    @Published var index = 0
-    @Published var displayCount = 0
+    @Published var snapshots: [Snapshot] = [] // loaded snapshots
+    @Published var timestamps: [TimestampList] = [] // all timestamps matching current search
+    @Published var index = 0 // index within `snapshots`
+    @Published var timestampIndex = 0 // index within `timestamps`
+    @Published var snapshotCount = 0 // total number of snapshots
+    @Published var totalIndex = 0 // index from [0, snapshotCount)
 
     private let imageLoader = ImageLoader()
+    private var isLoading = false
+
+    func activate() {
+        Task { await imageLoader.activate() }
+    }
 
     func insert(snapshot: Snapshot) {
         let index = snapshots.firstIndex { $0.timestamp > snapshot.timestamp } ?? snapshots.count
@@ -176,120 +185,176 @@ class ImageModel: ObservableObject {
         }
     }
 
-    func getTimestampsFromDisk() async throws -> [Int: TimestampObject] {
+    // TODO: probably want to accept a callback instead and run that every time we have an image, so that we can display images faster
+    func loadImagesFromDisk(timestamps: TimestampList) async throws -> [Snapshot] {
+        guard timestamps.count > 0 else { return [] }
         let db = try Database()
-        return try db.getTimestampList()
+        let videos = try db.getVideosBetween(minTimestamp: timestamps.block, maxTimestamp: timestamps.block + 300)
+        guard videos.count > 0 else { return [] }
+
+        let session = try XPCSession(xpcService: "com.thomasm6m6.RekalDecoder")
+        defer { session.cancel(reason: "Done") }
+
+        var loadedSnapshots: [Snapshot] = []
+        for video in videos {
+            let frames = try await self.decodeVideo(video: video, session: session)
+            for snapshot in frames {
+                loadedSnapshots.append(snapshot)
+            }
+        }
+        return loadedSnapshots
     }
 
-    func loadImagesFromDisk(search: Search) async throws {
-        let db = try Database()
-        let videos = try db.videosBetween(minTime: search.minTimestamp, maxTime: search.maxTimestamp)
+    func decodeVideo(video: Video, session: XPCSession) async throws -> [Snapshot] {
+        let request = DecodeRequest(url: video.url, timestamp: video.timestamp, action: nil)
+        let response = try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<DecodeResponse, any Error>) in
 
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            for video in videos {
-                let snapshotsInVideo = try db.snapshotsInVideo(videoTimestamp: video.timestamp)
-                group.addTask {
-                    let frames = try await self.decodeVideo(url: video.url, snapshotsInVideo: snapshotsInVideo)
-                    for snapshot in frames {
-                        Task { @MainActor in
-                            self.insert(snapshot: snapshot)
+            Task.detached {
+                do {
+                    try session.send(request) { (result: Result<DecodeResponse, any Error>) in
+                        switch result {
+                        case .success(let response):
+                            continuation.resume(returning: response)
+                        case .failure(let error):
+                            continuation.resume(throwing: error)
                         }
                     }
+                } catch {
+                    log2("Error sending request: \(error)")
+                    continuation.resume(throwing: error)
                 }
             }
+        }
+
+        let decodedSnapshots = decodeSnapshots(response.snapshots)
+        return decodedSnapshots
+    }
+
+    func loadNextImages() {
+        let max = 30
+        Task {
+            isLoading = true
+            do {
+                var count = 0
+                for timestamps in timestamps[timestampIndex..<timestamps.count] {
+                    let newSnapshots = if timestamps.source == .xpc {
+                        try await imageLoader.loadImagesFromXPC(timestamps: timestamps)
+                    } else {
+                        try await loadImagesFromDisk(timestamps: timestamps)
+                    }
+                    // snapshots.insert(contentsOf: newSnapshots, at: snapshots.count)
+                    for snapshot in newSnapshots {
+                        snapshots.append(snapshot)
+                    }
+                    timestampIndex += 1
+                    count += newSnapshots.count
+                    if count + snapshots.count >= max + 100 {
+                        break
+                    }
+                }
+
+                // TODO: use ObservableObject so that these changes are published only after updating both values
+                self.snapshots.removeFirst(min(index, count))
+                self.index -= min(index, count)
+            } catch {
+                log("Error in addImages: \(error)")
+            }
+            isLoading = false
         }
     }
 
-    private func decodeVideo(url: URL, snapshotsInVideo: [Snapshot]) async throws -> [Snapshot] {
-        var rawImages: [CGImage] = []
-
-        let asset = AVURLAsset(url: url)
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-        generator.requestedTimeToleranceBefore = .zero
-        generator.requestedTimeToleranceAfter = .zero
-
-        do {
-            let duration = try await asset.load(.duration)
-            let times = stride(from: 1.0, to: duration.seconds, by: 1.0).map {
-                CMTime(seconds: $0, preferredTimescale: duration.timescale)
-            }
-
-            for await result in generator.images(for: times) {
-                switch result {
-                case .success(requestedTime: _, let image, actualTime: _):
-                    rawImages.append(image)
-                case .failure(requestedTime: let requested, let error):
-                    print("Failed to process image at \(requested.seconds) seconds for video '\(url.path)': '\(error)'")
+    // FIXME: there is probably an OOB bug here where the solution is analogous to min(index, count) above.
+    // I'm too tired to figure it out rn though.
+    func loadPreviousImages() {
+        let max = 30
+        Task {
+            isLoading = true
+            do {
+                var count = 0
+                for timestamps in timestamps[0..<timestampIndex].reversed() {
+                    let newSnapshots = if timestamps.source == .xpc {
+                        try await imageLoader.loadImagesFromXPC(timestamps: timestamps)
+                    } else {
+                        try await loadImagesFromDisk(timestamps: timestamps)
+                    }
+                    // snapshots.insert(contentsOf: newSnapshots, at: 0)
+                    for snapshot in newSnapshots.reversed() {
+                        self.index += 1
+                        snapshots.insert(snapshot, at: 0)
+                    }
+                    timestampIndex -= 1
+                    count += newSnapshots.count
+                    if count + snapshots.count >= max + 100 {
+                        break
+                    }
                 }
+
+                self.snapshots.removeLast(count)
+            } catch {
+                log("Error in loadPreviousImages: \(error)")
             }
-        } catch {
-            print("Error loading video: \(error)")
+            isLoading = false
         }
-
-        guard snapshotsInVideo.count == rawImages.count else {
-            throw ImageError.decodingError("snapshotsInVideo.count (\(snapshotsInVideo.count)) != rawImages.count (\(rawImages.count)) for \(url.path)")
-        }
-
-        var result: [Snapshot] = []
-
-        // TODO: proper fuzzy search
-        for (index, image) in rawImages.enumerated() {
-            let timestamp = snapshotsInVideo[index].timestamp
-            guard var snapshot = snapshotsInVideo.first(where: { $0.timestamp == timestamp }) else {
-                continue
-            }
-            snapshot.image = image
-
-            result.append(snapshot)
-        }
-
-        return result
     }
 
     func loadImages(query: SearchQuery? = nil) {
-        let searchText =
-            if let query = query { query.text }
-            else { "" }
+        let searchText = query?.text ?? ""
         let search = Search.parse(text: searchText)
 
-        snapshots = []
-
         Task {
+            isLoading = true
             do {
-                let imageCountXPC = try await imageLoader.getImageCountFromXPC()
-                let imageCountDisk = try getImageCountFromDisk(
-                    minTimestamp: search.minTimestamp,
-                    maxTimestamp: search.maxTimestamp)
+                let xpcTimestamps = try await imageLoader.getTimestamps(from: search.minTimestamp, to: search.maxTimestamp)
+                let diskTimestamps = try getTimestamps(from: search.minTimestamp, to: search.maxTimestamp)
+                timestamps = xpcTimestamps + diskTimestamps
 
-                self.displayCount = imageCountXPC + imageCountDisk
+                snapshotCount = timestamps.reduce(0) { $0 + $1.count }
 
-                let xpcSnapshots = try await imageLoader.loadImagesFromXPC()
-                for snapshot in xpcSnapshots {
-                    self.insert(snapshot: snapshot)
+                snapshots = []
+                timestampIndex = 0
+                for timestamps in timestamps {
+                    let newSnapshots = if timestamps.source == .xpc {
+                        try await imageLoader.loadImagesFromXPC(timestamps: timestamps)
+                    } else {
+                        try await loadImagesFromDisk(timestamps: timestamps)
+                    }
+                    // snapshots.insert(contentsOf: newSnapshots, at: snapshots.count)
+                    for snapshot in newSnapshots {
+                        snapshots.append(snapshot)
+                    }
+                    timestampIndex += 1
+                    if snapshots.count > 50 {
+                        break
+                    }
                 }
-
-                try await loadImagesFromDisk(search: search)
             } catch {
-                print("Error loading images: \(error)")
+                print("Error loading images: \(error.localizedDescription)")
             }
+            isLoading = false
         }
     }
 
-    func getImageCountFromDisk(minTimestamp: Int, maxTimestamp: Int) throws -> Int {
+    func getTimestamps(from minTimestamp: Int, to maxTimestamp: Int) throws -> [TimestampList] {
         do {
             let db = try Database()
 
-            return try db.getImageCount(
-                minTimestamp: minTimestamp,
-                maxTimestamp: maxTimestamp)
+            return try db.getTimestamps(from: minTimestamp, to: maxTimestamp)
+        } catch {
+            throw error
         }
     }
 
+    // FIXME: crashes at last image
     func nextImage() {
         Task {
             if !self.atLastImage {
                 self.index += 1
+                self.totalIndex += 1
+
+                if !isLoading && self.index > self.snapshots.count - 30 {
+                    self.loadNextImages()
+                }
             }
         }
     }
@@ -298,15 +363,21 @@ class ImageModel: ObservableObject {
         Task {
             if !self.atFirstImage {
                 self.index -= 1
+                self.totalIndex -= 1
+
+                if !isLoading && self.index < 30 {
+                    self.loadPreviousImages()
+                }
             }
         }
     }
 
     var atFirstImage: Bool {
-        return index == 0
+        return totalIndex == 0
     }
 
     var atLastImage: Bool {
-        return index == snapshots.count - 1
+//        return totalIndex == snapshotCount - 1
+        return totalIndex == snapshots.count - 1
     }
 }

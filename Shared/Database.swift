@@ -91,10 +91,9 @@ class Database {
         ))
     }
 
-    // TODO: rename to minTimestamp:,maxTimestamp:
-    func videosBetween(minTime: Int, maxTime: Int) throws -> [Video] {
+    func getVideosBetween(minTimestamp: Int, maxTimestamp: Int) throws -> [Video] {
         var videos: [Video] = []
-        let query = videoTable.filter(videoTimestamp >= minTime && videoTimestamp < maxTime)
+        let query = videoTable.filter(videoTimestamp >= minTimestamp && videoTimestamp < maxTimestamp)
         for row in try db.prepare(query) {
             videos.append(Video(
                 timestamp: row[videoTimestamp],
@@ -176,24 +175,6 @@ class Database {
         return (appIds, appNames, urls)
     }
 
-    func getTimestampList() throws -> [Int: TimestampObject] {
-        var objects: [Int: TimestampObject] = [:]
-        let startOfDay = Int(Calendar.current.startOfDay(for: Date.now)
-            .timeIntervalSince1970)
-        let query = snapshotTable.filter(snapshotTimestamp > startOfDay)
-        for row in try db.prepare(query) {
-            let timestamp = row[snapshotTimestamp]
-            let videoTimestamp = row[snapshotVideoTimestamp]
-
-            objects[timestamp] = TimestampObject(
-                timestamp: timestamp,
-                source: .disk(videoTimestamp: videoTimestamp)
-            )
-        }
-
-        return objects
-    }
-
     func getVideoURL(for timestamp: Int) throws -> URL {
         let query = videoTable.filter(videoTimestamp == timestamp)
         let iterator = try db.prepare(query)
@@ -204,16 +185,26 @@ class Database {
         let url = URL(filePath: row[videoPath])
         return url
     }
-}
 
-struct TimestampObject {
-    var timestamp: Int
-    var source: SnapshotSource
-    var snapshot: Snapshot?
-}
-
-// Can/should this be put inside TimestampObject?
-enum SnapshotSource {
-    case disk(videoTimestamp: Int)
-    case xpc
+    func getTimestamps(from minTimestamp: Int, to maxTimestamp: Int) throws -> [TimestampList] {
+        var timestamps: [TimestampList] = []
+        let query = snapshotTable.filter(snapshotTimestamp >= minTimestamp && snapshotTimestamp <= maxTimestamp)
+        var count = 0
+        for row in try db.prepare(query) {
+            let timestamp = row[snapshotTimestamp]
+            let block = timestamp / 300 * 300
+            count += 1
+            // TODO: use a class instead of a struct for timestamps? to avoid this hassle
+            if timestamps.count > 0, timestamps[timestamps.count-1].block == block {
+                timestamps[timestamps.count-1].timestamps.append(timestamp)
+            } else {
+                timestamps.append(TimestampList(
+                    block: block,
+                    timestamps: [timestamp],
+                    source: .disk
+                ))
+            }
+        }
+        return timestamps
+    }
 }

@@ -40,9 +40,9 @@ struct NavView: View {
             .disabled(imageModel.snapshots.isEmpty || imageModel.atLastImage)
 
 //        let count = imageModel.snapshots.count
-        let count = imageModel.displayCount
+        let count = imageModel.snapshotCount
         let updateTextIndex = {
-            textIndex = String(count == 0 ? 0 : imageModel.index + 1)
+            textIndex = String(count == 0 ? 0 : imageModel.totalIndex + 1)
         }
 
         // TODO: alignment is wacky. Need to fix:

@@ -21,6 +21,20 @@ struct Search {
     var maxTimestamp: Int
     var terms: [String]
 
+    init() {
+        let today = Int(Calendar.current.startOfDay(for: Date.now).timeIntervalSince1970)
+
+        self.minTimestamp = today
+        self.maxTimestamp = today + 24 * 60 * 60
+        self.terms = []
+    }
+
+    init(minTimestamp: Int, maxTimestamp: Int, terms: [String]) {
+        self.minTimestamp = minTimestamp
+        self.maxTimestamp = maxTimestamp
+        self.terms = terms
+    }
+
     static func parse(text: String) -> Search {
         let today = Int(Calendar.current.startOfDay(for: Date.now).timeIntervalSince1970)
 
@@ -123,8 +137,7 @@ struct ContentView: View {
                 VStack {
                     Spacer()
 
-                    if !imageModel.snapshots.isEmpty,
-                       let image = imageModel.snapshots[imageModel.index].image {
+                    if !imageModel.snapshots.isEmpty, let image = imageModel.snapshots[imageModel.index].image {
                         Group {
                             Image(image, scale: 1.0, label: Text("Screenshot"))
                                 .resizable()
@@ -161,6 +174,7 @@ struct ContentView: View {
         .onAppear {
             _ = LaunchManager.registerLoginItem()
             _ = LaunchManager.registerLaunchAgent()
+            imageModel.activate()
         }
     }
 }

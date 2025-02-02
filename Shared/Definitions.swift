@@ -1,6 +1,28 @@
 import Foundation
 import CoreGraphics
 
+func log2(_ message: String) {
+    let fileURL = URL(fileURLWithPath: "/tmp/a.log")
+
+    do {
+        // Check if file exists; if it does, append, otherwise create a new file
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            // Append the message to the file
+            let fileHandle = try FileHandle(forWritingTo: fileURL)
+            fileHandle.seekToEndOfFile()
+            if let data = "\(Date.now)\t\(message)\n".data(using: .utf8) {
+                fileHandle.write(data)
+            }
+            fileHandle.closeFile()
+        } else {
+            // Create a new file and write the message
+            try "\(Date.now)\t\(message)\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        }
+    } catch {
+        print("Error writing to file: \(error)")
+    }
+}
+
 struct SnapshotInfo: Codable, Sendable {
     let windowId: Int
     let rect: CGRect
@@ -62,6 +84,23 @@ struct Video: Sendable {
         self.timestamp = timestamp
         self.url = url
     }
+}
+
+struct TimestampList: Codable {
+    let block: Int
+    var timestamps: [Int]
+    let source: SnapshotSource
+
+    var count: Int {
+        return timestamps.count
+    }
+}
+
+// Can/should this be put inside TimestampObject?
+enum SnapshotSource: Codable {
+//    case disk(videoTimestamp: Int)
+    case disk
+    case xpc
 }
 
 func log(_ string: String) {

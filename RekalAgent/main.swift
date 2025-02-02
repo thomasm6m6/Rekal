@@ -38,13 +38,26 @@ func performTask(with message: XPCReceivedMessage) -> Encodable? {
         let request = try message.decode(as: XPCRequest.self)
 
         switch request.messageType {
-        case .fetchImages:
+//        case .fetchImages(timestamps: let timestamps):
 //            let now = Int(Date().timeIntervalSince1970)
 //            let snapshots = data.getRange(from: now - 600, to: now)
 //            let snapshots = data.getRecent()
-            let snapshots = data.get()
+//            let snapshots = data.get(with: timestamps)
+//            let encodedSnapshots = encodeSnapshots(snapshots)
+//            return XPCResponse(reply: .snapshots(encodedSnapshots))
+        case .fetchImagesFromRange(minTimestamp: let minTimestamp, maxTimestamp: let maxTimestamp):
+            let snapshots = data.get(from: minTimestamp, to: maxTimestamp)
             let encodedSnapshots = encodeSnapshots(snapshots)
             return XPCResponse(reply: .snapshots(encodedSnapshots))
+//        case .getTimestamps(min: let minTimestamp, max: let maxTimestamp):
+//            return XPCResponse(reply:
+//                    .timestamps(data.getTimestamps(
+//                        minTimestamp: minTimestamp,
+//                        maxTimestamp: maxTimestamp)))
+        case .getTimestampBlocks(min: let minTimestamp, max: let maxTimestamp):
+            return XPCResponse(reply: .timestampBlocks(data.getTimestampBlocks(
+                    minTimestamp: minTimestamp,
+                    maxTimestamp: maxTimestamp)))
         case .controlCommand(.startRecording):
             print("Start recording")
         case .controlCommand(.pauseRecording):
@@ -53,6 +66,7 @@ func performTask(with message: XPCReceivedMessage) -> Encodable? {
             let semaphore = DispatchSemaphore(value: 0)
             var result = XPCResponse(reply: .error("Unknown error processing"))
 
+            // TODO: return from task instead of using semaphore?
             Task {
                 do {
                     try await processor.process(now: true)
@@ -73,28 +87,6 @@ func performTask(with message: XPCReceivedMessage) -> Encodable? {
         print("Failed to decode received message, error: \(error)")
     }
     return nil
-}
-
-func log2(_ message: String) {
-    let fileURL = URL(fileURLWithPath: "/tmp/a.log")
-
-    do {
-        // Check if file exists; if it does, append, otherwise create a new file
-        if FileManager.default.fileExists(atPath: fileURL.path) {
-            // Append the message to the file
-            let fileHandle = try FileHandle(forWritingTo: fileURL)
-            fileHandle.seekToEndOfFile()
-            if let data = "\(Date.now)\t\(message)\n".data(using: .utf8) {
-                fileHandle.write(data)
-            }
-            fileHandle.closeFile()
-        } else {
-            // Create a new file and write the message
-            try "\(Date.now)\t\(message)\n".write(to: fileURL, atomically: true, encoding: .utf8)
-        }
-    } catch {
-        print("Error writing to file: \(error)")
-    }
 }
 
 log2("Starting daemon...")

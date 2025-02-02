@@ -3,6 +3,24 @@ import CoreGraphics
 import ImageIO
 import ServiceManagement
 
+struct DecodeRequest: Codable {
+    let url: URL
+    let timestamp: Int
+    let action: Action?
+}
+
+enum Action: Codable {
+    case quit
+}
+
+struct DecodeResponse: Codable {
+    let snapshots: [EncodedSnapshot]
+}
+
+enum XPCDecodingError: Error {
+    case error(String)
+}
+
 struct XPCRequest: Codable {
     let messageType: MessageType
 }
@@ -12,7 +30,10 @@ struct XPCResponse: Codable {
 }
 
 enum MessageType: Codable {
-    case fetchImages
+//    case fetchImages(timestamps: [TimestampObject])
+    case fetchImagesFromRange(minTimestamp: Int, maxTimestamp: Int)
+//    case getTimestamps(min: Int, max: Int)
+    case getTimestampBlocks(min: Int, max: Int)
     case controlCommand(Command)
     case statusQuery(Query)
 }
@@ -30,6 +51,8 @@ enum Query: Codable {
 
 enum Reply: Codable {
     case snapshots([EncodedSnapshot])
+//    case timestamps([TimestampObject])
+    case timestampBlocks([TimestampList])
     case status(Status)
     case imageCount(Int)
     case didProcess
