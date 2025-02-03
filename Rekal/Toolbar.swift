@@ -68,20 +68,20 @@ struct NavView: View {
                 }
                 .onSubmit {
                     if let number = Int(textIndex), number > 0 && number <= count {
-                        imageModel.setIndex(index: number - 1)
+                        imageModel.setIndex(number - 1)
                     }
                     updateTextIndex()
                 }
                 .onKeyPress(.upArrow) {
                     if let number = Int(textIndex), number + 1 <= count {
-                        imageModel.setIndex(index: number)
+                        imageModel.setIndex(number)
                         updateTextIndex()
                     }
                     return .handled
                 }
                 .onKeyPress(.downArrow) {
                     if let number = Int(textIndex), number - 1 > 0 {
-                        imageModel.setIndex(index: number - 2)
+                        imageModel.setIndex(number - 2)
                         updateTextIndex()
                     }
                     return .handled

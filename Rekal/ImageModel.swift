@@ -161,6 +161,7 @@ class ImageModel: ObservableObject {
 
     private let imageLoader = ImageLoader()
     private var isLoading = false
+    private var lastQuery: SearchQuery? = nil
 
     func activate() {
         Task { await imageLoader.activate() }
@@ -169,10 +170,6 @@ class ImageModel: ObservableObject {
     func insert(snapshot: Snapshot) {
         let index = snapshots.firstIndex { $0.timestamp > snapshot.timestamp } ?? snapshots.count
         snapshots.insert(snapshot, at: index)
-    }
-
-    func setIndex(index: Int) {
-        Task { self.index = index }
     }
 
     func processNow() {
@@ -297,9 +294,10 @@ class ImageModel: ObservableObject {
 
     // TODO: bug: if load{Next,Previous}Images is running when this function is called (via the search bar), it will not execute
     // Should probably put all three functions in an actor
-    func loadImages(query: SearchQuery? = nil) {
+    func loadImages(query: SearchQuery? = nil, offset: Int = 0) {
         if isLoading { return }
 
+        lastQuery = query
         let searchText = query?.text ?? ""
         let search = Search.parse(text: searchText)
 
@@ -311,17 +309,24 @@ class ImageModel: ObservableObject {
                 timestamps = (xpcTimestamps + diskTimestamps).sorted { $0.block < $1.block }
 
                 snapshotCount = timestamps.reduce(0) { $0 + $1.count }
-
-                snapshots = []
                 timestampIndex = 0
+                totalIndex = offset
+                index = 0
+                snapshots = []
+
+                var count = 0
                 for timestamps in timestamps {
+                    timestampIndex += 1
+                    count += timestamps.count
+                    if count < offset {
+                        continue
+                    }
                     let newSnapshots = if timestamps.source == .xpc {
                         try await imageLoader.loadImagesFromXPC(timestamps: timestamps)
                     } else {
                         try await loadImagesFromDisk(timestamps: timestamps)
                     }
                     snapshots.insert(contentsOf: newSnapshots, at: snapshots.count)
-                    timestampIndex += 1
                     if snapshots.count > 100 {
                         break
                     }
@@ -345,12 +350,21 @@ class ImageModel: ObservableObject {
         }
     }
 
+    // TODO: consider avoiding refetching some images if there's an overlap
+    func setIndex(_ newIndex: Int) {
+        Task {
+            loadImages(query: lastQuery, offset: max(0, newIndex - 100/2))
+            totalIndex = newIndex
+        }
+    }
+
+    // FIXME: when inputting into the top left textfield, the number incorrectly displays as 1 briefly
     // FIXME: sometimes stops before totalIndex = snapshotCount-1
     func nextImage() {
         Task {
-            if self.index < snapshots.count - 1 && self.totalIndex < snapshotCount - 1  {
-                self.index += 1
-                self.totalIndex += 1
+            if index < snapshots.count - 1 && totalIndex < snapshotCount - 1 {
+                index += 1
+                totalIndex += 1
 
                 if self.index > self.snapshots.count - 30 {
                     self.loadNextImages()
@@ -377,7 +391,6 @@ class ImageModel: ObservableObject {
     }
 
     var atLastImage: Bool {
-//        return totalIndex == snapshotCount - 1
         return totalIndex == snapshots.count - 1
     }
 }
