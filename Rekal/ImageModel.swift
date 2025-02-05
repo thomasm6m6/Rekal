@@ -163,6 +163,9 @@ class ImageModel: ObservableObject {
     private var isLoading = false
     private var lastQuery: SearchQuery? = nil
 
+    private let arraySize = 60
+    private let arrayOffset = 20
+
     func activate() {
         Task { await imageLoader.activate() }
     }
@@ -230,7 +233,6 @@ class ImageModel: ObservableObject {
 
     func loadNextImages() {
         if isLoading { return }
-        let max = 30
         Task {
             isLoading = true
             do {
@@ -246,7 +248,7 @@ class ImageModel: ObservableObject {
                     snapshots.insert(contentsOf: newSnapshots, at: snapshots.count)
                     timestampIndex += 1
                     count += newSnapshots.count
-                    if count + snapshots.count >= max + 100 {
+                    if count + snapshots.count >= arraySize + arrayOffset {
                         break
                     }
                 }
@@ -263,7 +265,6 @@ class ImageModel: ObservableObject {
 
     func loadPreviousImages() {
         if isLoading { return }
-        let max = 30
         Task {
             isLoading = true
             do {
@@ -279,7 +280,7 @@ class ImageModel: ObservableObject {
                     index += newSnapshots.count
                     timestampIndex -= 1
                     count += newSnapshots.count
-                    if count + snapshots.count >= max + 100 {
+                    if count + snapshots.count >= arraySize + arrayOffset {
                         break
                     }
                 }
@@ -294,7 +295,7 @@ class ImageModel: ObservableObject {
 
     // TODO: bug: if load{Next,Previous}Images is running when this function is called (via the search bar), it will not execute
     // Should probably put all three functions in an actor
-    func loadImages(query: SearchQuery? = nil, offset: Int = 0) {
+    func loadImages(query: SearchQuery? = nil, offset: Int = 0, indexOffset: Int = 0) {
         if isLoading { return }
 
         lastQuery = query
@@ -327,10 +328,13 @@ class ImageModel: ObservableObject {
                         try await loadImagesFromDisk(timestamps: timestamps)
                     }
                     snapshots.insert(contentsOf: newSnapshots, at: snapshots.count)
-                    if snapshots.count > 100 {
+                    if snapshots.count > arraySize {
                         break
                     }
                 }
+
+                index += indexOffset
+                totalIndex += indexOffset
 
                 print("loadImages: index = \(index), snapshots.count = \(snapshots.count)")
             } catch {
@@ -352,10 +356,7 @@ class ImageModel: ObservableObject {
 
     // TODO: consider avoiding refetching some images if there's an overlap
     func setIndex(_ newIndex: Int) {
-        Task {
-            loadImages(query: lastQuery, offset: max(0, newIndex - 100/2))
-            totalIndex = newIndex
-        }
+        Task { loadImages(query: lastQuery, offset: max(0, newIndex - arraySize/2), indexOffset: newIndex - arraySize/2 > 0 ? arraySize/2 : 0) }
     }
 
     // FIXME: when inputting into the top left textfield, the number incorrectly displays as 1 briefly
@@ -366,7 +367,7 @@ class ImageModel: ObservableObject {
                 index += 1
                 totalIndex += 1
 
-                if self.index > self.snapshots.count - 30 {
+                if self.index > self.snapshots.count - arrayOffset {
                     self.loadNextImages()
                 }
             }
@@ -379,7 +380,7 @@ class ImageModel: ObservableObject {
                 self.index -= 1
                 self.totalIndex -= 1
 
-                if self.index < 30 {
+                if self.index < arrayOffset {
                     self.loadPreviousImages()
                 }
             }
