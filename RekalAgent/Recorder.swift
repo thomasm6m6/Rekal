@@ -13,6 +13,7 @@ enum RecordingError: Error {
 }
 
 actor Recorder {
+    var isRecording = true
     private let data: SnapshotData
     private let interval: TimeInterval
     private var lastSnapshot: Snapshot? = nil
@@ -22,9 +23,17 @@ actor Recorder {
         self.interval = interval
     }
 
+    func setRecording(_ status: Bool) {
+        isRecording = status
+    }
+
     func record() async throws {
+        if !isRecording {
+            return
+        }
+
         if isIdle() {
-            log2("Skipping: idle")
+            log("Skipping: idle")
             return
         }
 
@@ -33,10 +42,10 @@ actor Recorder {
                 return
             }
             data.add(timestamp: snapshot.timestamp, snapshot: snapshot)
-            log2("Saved image")
+            log("Saved image")
         } catch {
             // throw?
-            log2("Did not save image: \(error)")
+            log("Did not save image: \(error)")
         }
     }
 
@@ -51,14 +60,14 @@ actor Recorder {
         // FIXME: one of the following two statements is throwing, *sometimes*. Not sure under what
         // conditions. Oddly, the error does not get printed anywhere.
         // or SCShareableContent.current(?)
-        log2("a")
+        log("a")
         let content = try await SCShareableContent.excludingDesktopWindows(
             false, onScreenWindowsOnly: true)
-        log2("b")
+        log("b")
         guard let display = content.displays.first else {
             throw RecordingError.infoError("No displays found")
         }
-        log2("c")
+        log("c")
 
         for window in content.windows {
             if frontmostAppPID == window.owningApplication?.processID {
@@ -71,6 +80,8 @@ actor Recorder {
             throw RecordingError.infoError("Failed to get window info")
         }
 
+//        log("rect: \(info.rect), display.frame: \(display.frame)")
+
         // TODO: make these configurable via GUI (UserDefaults?)
         // also private browser windows
         let excludedApps: [String] = ["com.apple.FaceTime", "com.apple.Passwords", "com.thomasm6m6.Rekal"]
@@ -79,7 +90,7 @@ actor Recorder {
         if info.appId != "" {
             for app in excludedApps {
                 if app == info.appId {
-                    log2("Skipping: active application is on blacklist")
+                    log("Skipping: active application is on blacklist")
                     return nil
                 }
             }
@@ -87,7 +98,7 @@ actor Recorder {
         if info.url != "" {
             for url in excludedURLs {
                 if url == info.url {
-                    log2("Skipping: active URL is on blacklist")
+                    log("Skipping: active URL is on blacklist")
                     return nil
                 }
             }
@@ -108,7 +119,7 @@ actor Recorder {
         let image = try await SCScreenshotManager.captureImage(
             contentFilter: filter, configuration: config)
         guard let hash = pHash(for: image) else {
-            log2("Skipping: cannot make hash for image")
+            log("Skipping: cannot make hash for image")
             return nil
         }
         let snapshot = Snapshot(
@@ -119,7 +130,7 @@ actor Recorder {
 
         if let lastSnapshot = lastSnapshot,
            isSimilar(snapshot1: snapshot, snapshot2: lastSnapshot) {
-            log2("Skipping: images are similar")
+            log("Skipping: images are similar")
             return nil
         }
 
@@ -141,13 +152,13 @@ actor Recorder {
             if app.bundleIdentifier == "com.google.Chrome" {
                 if let lastSnapshot = lastSnapshot,
                    window.title == lastSnapshot.info.windowName {
-                    log2("\(window.title) == \(lastSnapshot.info.windowName)")
-                    log2("url: \(lastSnapshot.info.url)")
+                    log("\(window.title) == \(lastSnapshot.info.windowName)")
+                    log("url: \(lastSnapshot.info.url)")
                     info.url = lastSnapshot.info.url
                 } else if let url = getBrowserURL() {
                     info.url = url
-                    log2("here")
-                    log2("url: \(info.url)")
+                    log("here")
+                    log("url: \(info.url)")
                 }
             }
         }
@@ -183,12 +194,12 @@ actor Recorder {
         let script = "tell application \"Google Chrome\" to get URL of active tab of front window"
         var error: NSDictionary?
         guard let scriptObject = NSAppleScript(source: script) else {
-            log2("Error constructing AppleScript")
+            log("Error constructing AppleScript")
             return nil
         }
         let output = scriptObject.executeAndReturnError(&error)
         if error != nil {
-            log2("Error executing AppleScript: \(error)")
+            log("Error executing AppleScript: \(error)")
             return nil
         }
         return output.stringValue
@@ -198,7 +209,7 @@ actor Recorder {
         guard let similarity = computeSimilarityPercentage(hash1: snapshot1.pHash, hash2: snapshot2.pHash) else {
             return false
         }
-        return similarity >= 80 // maybe 85
+        return similarity >= 90
     }
 
     func computeSimilarityPercentage(hash1: String, hash2: String) -> Double? {

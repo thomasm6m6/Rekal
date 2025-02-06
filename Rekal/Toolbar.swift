@@ -15,13 +15,9 @@ struct Toolbar: View {
 
         Spacer()
 
-        Button("Process now") {
-            imageModel.processNow()
+        Button("Delete", systemImage: "trash") {
         }
-
-//        Button("Delete", systemImage: "trash") {
-//            // TODO
-//        }
+        .disabled(imageModel.snapshots.isEmpty)
 
         InfoButton(imageModel: imageModel)
     }
@@ -68,20 +64,23 @@ struct NavView: View {
                 }
                 .onSubmit {
                     if let number = Int(textIndex), number > 0 && number <= count {
-                        imageModel.setIndex(number - 1)
+                        imageModel.index = number - 1
+//                        imageModel.setIndex(number - 1)
                     }
                     updateTextIndex()
                 }
                 .onKeyPress(.upArrow) {
                     if let number = Int(textIndex), number + 1 <= count {
-                        imageModel.setIndex(number)
+                        imageModel.nextImage()
+//                        imageModel.setIndex(number)
                         updateTextIndex()
                     }
                     return .handled
                 }
                 .onKeyPress(.downArrow) {
                     if let number = Int(textIndex), number - 1 > 0 {
-                        imageModel.setIndex(number - 2)
+                        imageModel.previousImage()
+//                        imageModel.setIndex(number - 2)
                         updateTextIndex()
                     }
                     return .handled
@@ -103,11 +102,6 @@ struct NavView: View {
     }
 }
 
-struct SearchQuery {
-    var text: String
-    var options: SearchOptions
-}
-
 struct SearchBar: View {
     @State var isShowingPopover = false
     @AppStorage("fullText") var fullText = false
@@ -123,9 +117,9 @@ struct SearchBar: View {
             .textFieldStyle(.roundedBorder)
             .frame(width: 300)
             .onSubmit {
-                let query = SearchQuery(
+                let query = Query(
                     text: searchText,
-                    options: SearchOptions(fullText: fullText)
+                    options: QueryOptions(fullText: fullText)
                 )
                 imageModel.loadImages(query: query)
             }

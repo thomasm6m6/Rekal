@@ -1,25 +1,60 @@
 import Foundation
 import CoreGraphics
+import ImageIO
 
-func log2(_ message: String) {
-    let fileURL = URL(fileURLWithPath: "/tmp/a.log")
+// TODO: shared instance, maybe actor
+class Logger {
+    private let fileURL = URL(fileURLWithPath: "/tmp/a.log")
+    private var fileHandle: FileHandle
 
-    do {
-        // Check if file exists; if it does, append, otherwise create a new file
-        if FileManager.default.fileExists(atPath: fileURL.path) {
-            // Append the message to the file
-            let fileHandle = try FileHandle(forWritingTo: fileURL)
-            fileHandle.seekToEndOfFile()
-            if let data = "\(Date.now)\t\(message)\n".data(using: .utf8) {
-                fileHandle.write(data)
-            }
-            fileHandle.closeFile()
-        } else {
-            // Create a new file and write the message
-            try "\(Date.now)\t\(message)\n".write(to: fileURL, atomically: true, encoding: .utf8)
+    init() throws {
+        if !FileManager.default.fileExists(atPath: fileURL.path) {
+            try "".write(to: fileURL, atomically: false, encoding: .utf8)
         }
-    } catch {
-        print("Error writing to file: \(error)")
+        fileHandle = try FileHandle(forWritingTo: fileURL)
+        fileHandle.seekToEndOfFile()
+    }
+
+    deinit {
+        fileHandle.closeFile()
+    }
+
+    func log(_ string: String) {
+        let message = "\(Date.now)\t\(string)\n"
+
+        print(message, terminator: "")
+
+        if let data = message.data(using: .utf8) {
+            fileHandle.write(data)
+        }
+    }
+}
+
+struct QueryOptions {
+    var fullText: Bool
+}
+
+struct Query: Codable {
+    let minTimestamp: Int
+    let maxTimestamp: Int
+    let terms: [String]
+
+    // Default Query gets all images for the current day, in local timezone
+    init() {
+        let today = Int(Calendar.current.startOfDay(for: Date.now).timeIntervalSince1970)
+
+        minTimestamp = today
+        maxTimestamp = today + 60 * 60 * 24
+        terms = []
+    }
+
+    // TODO: parse
+    init(text: String, options: QueryOptions) {
+        let today = Int(Calendar.current.startOfDay(for: Date.now).timeIntervalSince1970)
+
+        minTimestamp = today
+        maxTimestamp = today + 60 * 60 * 24
+        terms = []
     }
 }
 
@@ -76,33 +111,12 @@ struct EncodedSnapshot: Codable {
     }
 }
 
-struct Video: Sendable {
-    let timestamp: Int
-    let url: URL
-
-    init(timestamp: Int, url: URL) {
-        self.timestamp = timestamp
-        self.url = url
+extension CGImage {
+    var png: Data? {
+        guard let mutableData = CFDataCreateMutable(nil, 0),
+              let destination = CGImageDestinationCreateWithData(mutableData, "public.png" as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, self, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return mutableData as Data
     }
-}
-
-struct TimestampList: Codable {
-    let block: Int
-    var timestamps: [Int]
-    let source: SnapshotSource
-
-    var count: Int {
-        return timestamps.count
-    }
-}
-
-// Can/should this be put inside TimestampObject?
-enum SnapshotSource: Codable {
-//    case disk(videoTimestamp: Int)
-    case disk
-    case xpc
-}
-
-func log(_ string: String) {
-    print("\(Date())\t\(string)")
 }

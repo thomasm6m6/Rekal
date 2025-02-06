@@ -19,104 +19,43 @@ import Foundation
 //
 // TODO: figure out logging
 // TODO: swift 6
+// TODO: NSXPC (might need shm though)
 
+let logger = try Logger()
+let log = logger.log
+//func log(_ string: String) {
+//    let fileURL = URL(fileURLWithPath: "/tmp/a.log")
+//    do {
+//        let fileHandle = try FileHandle(forWritingTo: fileURL)
+//        let message = "\(Date.now)\t\(string)"
+//
+//        print(message)
+//
+//        if let data = message.data(using: .utf8) {
+//            fileHandle.write(data)
+//        }
+//        fileHandle.closeFile()
+//    } catch {
+//        print("Error in log function: \(error)")
+//    }
+//}
 
-func startListener() {
-    do {
-        _ = try XPCListener(service: "com.thomasm6m6.RekalAgent.xpc") { request in
-            request.accept { message in
-                return performTask(with: message)
-            }
-        }
-    } catch {
-        print("Failed to create listener, error: \(error)")
-    }
-}
-
-func performTask(with message: XPCReceivedMessage) -> Encodable? {
-    do {
-        let request = try message.decode(as: XPCRequest.self)
-
-        switch request.messageType {
-//        case .fetchImages(timestamps: let timestamps):
-//            let now = Int(Date().timeIntervalSince1970)
-//            let snapshots = data.getRange(from: now - 600, to: now)
-//            let snapshots = data.getRecent()
-//            let snapshots = data.get(with: timestamps)
-//            let encodedSnapshots = encodeSnapshots(snapshots)
-//            return XPCResponse(reply: .snapshots(encodedSnapshots))
-        case .fetchImagesFromRange(minTimestamp: let minTimestamp, maxTimestamp: let maxTimestamp):
-            let snapshots = data.get(from: minTimestamp, to: maxTimestamp)
-            let encodedSnapshots = encodeSnapshots(snapshots)
-            return XPCResponse(reply: .snapshots(encodedSnapshots))
-//        case .getTimestamps(min: let minTimestamp, max: let maxTimestamp):
-//            return XPCResponse(reply:
-//                    .timestamps(data.getTimestamps(
-//                        minTimestamp: minTimestamp,
-//                        maxTimestamp: maxTimestamp)))
-        case .getTimestampBlocks(min: let minTimestamp, max: let maxTimestamp):
-            return XPCResponse(reply: .timestampBlocks(data.getTimestampBlocks(
-                    minTimestamp: minTimestamp,
-                    maxTimestamp: maxTimestamp)))
-        case .controlCommand(.startRecording):
-            print("Start recording")
-        case .controlCommand(.pauseRecording):
-            print("Stop recording")
-        case .controlCommand(.processImages):
-            let semaphore = DispatchSemaphore(value: 0)
-            var result = XPCResponse(reply: .error("Unknown error processing"))
-
-            // TODO: return from task instead of using semaphore?
-            Task {
-                do {
-                    try await processor.process(now: true)
-                    result = XPCResponse(reply: .didProcess)
-                } catch {
-                    result = XPCResponse(reply: .error("Processing failed: \(error)"))
-                }
-                semaphore.signal()
-            }
-            semaphore.wait()
-            return result
-        case .statusQuery(.imageCount):
-            return XPCResponse(reply: .imageCount(data.get().count))
-        case .statusQuery(.recordingStatus):
-            return XPCResponse(reply: .status(Bool.random() ? .recording: .stopped))
-        }
-    } catch {
-        print("Failed to decode received message, error: \(error)")
-    }
-    return nil
-}
-
-log2("Starting daemon...")
+log("Starting daemon...")
 
 let data = SnapshotData()
 let recorder = Recorder(data: data, interval: 1.0)
 
-let processor: Processor
-do { try processor = Processor(data: data, interval: 300) } catch {
-    log2("Error initializing Processor")
-    exit(1)
-}
-
 Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
     Task {
-        do { try await recorder.record() } catch {
-            log2("Error capturing snapshot: \(error)")
-        }
-    }
-}
-
-Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { _ in
-    Task {
-        do { try await processor.process() } catch {
-            log2("Error processing snapshots: \(error)")
+        do {
+            try await recorder.record()
+        } catch {
+            log("Error capturing snapshot: \(error)")
         }
     }
 }
 
 startListener()
-//dispatchMain()
 
+//dispatchMain()
 RunLoop.current.run()

@@ -1,7 +1,5 @@
 import Foundation
 import CoreGraphics
-import ImageIO
-import ServiceManagement
 
 struct DecodeRequest: Codable {
     let url: URL
@@ -30,38 +28,17 @@ struct XPCResponse: Codable {
 }
 
 enum MessageType: Codable {
-//    case fetchImages(timestamps: [TimestampObject])
-    case fetchImagesFromRange(minTimestamp: Int, maxTimestamp: Int)
-//    case getTimestamps(min: Int, max: Int)
-    case getTimestampBlocks(min: Int, max: Int)
-    case controlCommand(Command)
-    case statusQuery(Query)
-}
-
-enum Command: Codable {
-    case startRecording
-    case pauseRecording
-    case processImages
-}
-
-enum Query: Codable {
-    case imageCount
-    case recordingStatus
+    case getSnapshots(timestamps: [Int])
+    case getTimestamps(query: Query)
+    case getImageCount
+    case setRecording(Bool)
 }
 
 enum Reply: Codable {
     case snapshots([EncodedSnapshot])
-//    case timestamps([TimestampObject])
-    case timestampBlocks([TimestampList])
-    case status(Status)
+    case timestamps([Int])
+    case recordingStatus(Bool)
     case imageCount(Int)
-    case didProcess
-    case error(String)
-}
-
-enum Status: Codable {
-    case recording
-    case stopped
 }
 
 func encodeSnapshots(_ snapshots: [Snapshot]) -> [EncodedSnapshot] {
@@ -105,18 +82,4 @@ func decodeSnapshots(_ encodedSnapshots: [EncodedSnapshot]) -> [Snapshot] {
         ))
     }
     return snapshots
-}
-
-func buildListFromResponse(dictionary: XPCDictionary) -> [Snapshot]? {
-    return nil
-}
-
-extension CGImage {
-    var png: Data? {
-        guard let mutableData = CFDataCreateMutable(nil, 0),
-              let destination = CGImageDestinationCreateWithData(mutableData, "public.png" as CFString, 1, nil) else { return nil }
-        CGImageDestinationAddImage(destination, self, nil)
-        guard CGImageDestinationFinalize(destination) else { return nil }
-        return mutableData as Data
-    }
 }

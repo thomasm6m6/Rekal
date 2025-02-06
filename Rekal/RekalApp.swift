@@ -4,19 +4,14 @@ import SwiftUI
 struct RekalApp: App {
     @State var isRecording = true
     @State var snapshotCount = 0
-//    var xpcManager = XPCManager.shared
+    @StateObject var imageModel = ImageModel()
 
+//    var xpcManager = XPCManager.shared
 //    @FocusState var isSearchFocused: Bool
 
     var body: some Scene {
         WindowGroup(id: "main-window") {
-            ContentView()
-//                .onReceive(NotificationCenter.default.publisher(
-//                        for: NSApplication.willTerminateNotification)) { _ in
-//                    if let session = xpcManager.getSession() {
-//                        session.cancel(reason: "Done")
-//                    }
-//                }
+            ContentView(imageModel: imageModel)
                 .onAppear {
                     NSApplication.shared.setActivationPolicy(.regular)
                 }
@@ -35,16 +30,25 @@ struct RekalApp: App {
         }
 
         MenuBarExtra {
-//            Button(isRecording ? "Pause recording" : "Resume recording") {
-//                isRecording = !isRecording
-//                // TODO
-//            }
+            Button(isRecording ? "Pause recording" : "Resume recording") {
+                Task {
+                    do { // is do-catch necessary inside Task?
+                        isRecording = try await imageModel.setRecording(isRecording)
+                    } catch {
+                        print("Error setting recording status: \(error)")
+                    }
+                }
+//                isRecording.toggle()
+//                imageModel.xpcManager.toggleRecording()
+            }
 
-            OpenWindowButton()
+            Button("Sync") {}
+
+//            OpenWindowButton()
 
             Button("Quit") {
                 NSApplication.shared.terminate(nil)
-                // TODO: should quit daemon as well, if option was held
+                // TODO: should quit daemon as well, if option was held(?)
             }.keyboardShortcut("q")
         } label: {
             MenuBarIcon(isRecording: $isRecording)

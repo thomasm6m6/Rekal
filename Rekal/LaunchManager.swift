@@ -7,13 +7,11 @@ class LaunchManager {
     static func registerLoginItem() -> Bool {
         let service = SMAppService.mainApp
         do {
-            if service.status == .notRegistered {
-                try service.register()
-                log("Registered login item")
-            }
+            try service.register()
+            print("Registered login item")
             return true
         } catch {
-            log("Error registering login item: \(error)")
+            print("Error registering login item: \(error)")
             return false
         }
     }
@@ -22,10 +20,10 @@ class LaunchManager {
         let service = SMAppService.mainApp
         do {
             try service.unregister()
-            log("Unregistered login item")
+            print("Unregistered login item")
             return true
         } catch {
-            log("Error unregistering login item: \(error)")
+            print("Error unregistering login item: \(error)")
             return false
         }
     }
@@ -38,13 +36,11 @@ class LaunchManager {
     static func registerLaunchAgent() -> Bool {
         let service = SMAppService.agent(plistName: launchAgentPlist)
         do {
-            if service.status == .notRegistered {
-                try service.register()
-                log("Registered launch agent")
-            }
+            try service.register()
+            print("Registered launch agent")
             return true
         } catch {
-            log("Error registering launch agent: \(error)")
+            print("Error registering launch agent: \(error)")
             return false
         }
     }
@@ -53,10 +49,10 @@ class LaunchManager {
         let service = SMAppService.agent(plistName: launchAgentPlist)
         do {
             try service.unregister()
-            log("Unregistered launch agent")
+            print("Unregistered launch agent")
             return true
         } catch {
-            log("Error unregistering launch agent: \(error)")
+            print("Error unregistering launch agent: \(error)")
             return false
         }
     }
