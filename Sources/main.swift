@@ -7,9 +7,10 @@ struct Window {
   let id: Int
   let rect: CGRect
   let isActive: Bool
-  var title: String?
-  var appName: String?
-  var appId: String?
+  let zIndex: Int
+  var title: String
+  var appName: String
+  var appId: String
   var url: String?
 }
 
@@ -30,7 +31,7 @@ enum RecordingError: Error {
 actor Recorder {
   var isRecording = true
   private let interval: TimeInterval
-  private var lastSnapshot: Snapshot? = nil
+  private var lastSnapshot = Snapshot(timestamp: 0, windows: [:])
 
   init(interval: TimeInterval) {
     self.interval = interval
@@ -51,10 +52,7 @@ actor Recorder {
     }
 
     do {
-      guard let snapshot = try await capture() else {
-        return
-      }
-      print("Got snapshot:")
+      let snapshot = try await capture()
       print(snapshot)
     } catch {
       // throw?
@@ -62,12 +60,13 @@ actor Recorder {
     }
   }
 
-  private func capture() async throws -> Snapshot? {
+  private func capture() async throws -> Snapshot {
     let timestamp = Int(Date().timeIntervalSince1970)
     var windows: [Int: Window] = [:]
+    let appBlacklist = ["com.apple.WindowManager"]
 
     guard let frontmostAppPID = NSWorkspace.shared.frontmostApplication?.processIdentifier else {
-      return nil
+      throw RecordingError.infoError("Cannot get frotnmost application ID")
     }
 
     let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
@@ -81,17 +80,21 @@ actor Recorder {
       guard let title = window.title, let app = window.owningApplication else {
         throw RecordingError.infoError("Cannot get window title or app")
       }
+      if appBlacklist.contains(app.bundleIdentifier) {
+        continue
+      }
       let id = Int(window.windowID)
       var windowInfo = Window(
         id: id,
         rect: window.frame,
         isActive: frontmostAppPID == app.processID,
+        zIndex: window.windowLayer,
         title: title,
         appName: app.applicationName,
         appId: app.bundleIdentifier,
       )
       if app.bundleIdentifier == "com.google.Chrome" {
-        if let lastWindow = lastSnapshot?.windows[id], title == lastWindow.title {
+        if let lastWindow = lastSnapshot.windows[id], title == lastWindow.title {
           windowInfo.url = lastWindow.url
         } else if let url = getBrowserURL() {
           windowInfo.url = url
@@ -136,7 +139,7 @@ actor Recorder {
       .rightMouseDragged,
       .otherMouseDragged,
 
-      .scrollWheel,
+      // .scrollWheel,
     ]
 
     for event in events {

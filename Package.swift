@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
   name: "rekal",
   platforms: [
-    .macOS(.v13)
+    .macOS(.v15)
   ],
   products: [
     .executable(name: "Rekal", targets: ["Rekal"])
