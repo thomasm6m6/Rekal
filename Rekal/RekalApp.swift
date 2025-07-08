@@ -1,5 +1,8 @@
 import SwiftUI
 
+// FIXME: if the program is quit, the daemon will remain running. The daemon may have been left in a paused state.
+// The program always assumes at launch that the daemon is in a resumed state.
+
 @main
 struct RekalApp: App {
     @State var isRecording = true
@@ -30,26 +33,28 @@ struct RekalApp: App {
         }
 
         MenuBarExtra {
-            Button(isRecording ? "Pause recording" : "Resume recording") {
-                Task {
-                    do { // is do-catch necessary inside Task?
-                        isRecording = try await imageModel.setRecording(isRecording)
-                    } catch {
-                        print("Error setting recording status: \(error)")
+            VStack {
+                Button(isRecording ? "Pause recording" : "Resume recording") {
+                    Task {
+                        do { // is do-catch necessary inside Task?
+                            isRecording = try await imageModel.setRecording(!isRecording)
+                        } catch {
+                            print("Error setting recording status: \(error)")
+                        }
                     }
+                    //                isRecording.toggle()
+                    //                imageModel.xpcManager.toggleRecording()
                 }
-//                isRecording.toggle()
-//                imageModel.xpcManager.toggleRecording()
+
+                Button("Sync") {}
+
+                OpenWindowButton()
+
+                Button("Quit") {
+                    NSApplication.shared.terminate(nil)
+                    // TODO: should quit daemon as well, if option was held(?)
+                }.keyboardShortcut("q")
             }
-
-            Button("Sync") {}
-
-//            OpenWindowButton()
-
-            Button("Quit") {
-                NSApplication.shared.terminate(nil)
-                // TODO: should quit daemon as well, if option was held(?)
-            }.keyboardShortcut("q")
         } label: {
             MenuBarIcon(isRecording: $isRecording)
         }
@@ -60,7 +65,7 @@ struct OpenWindowButton: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button("Open Rekal") {
+        Button("Open") {
             openWindow(id: "main-window")
         }
     }
