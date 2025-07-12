@@ -1,7 +1,8 @@
-import Foundation
 import CoreGraphics
+import Foundation
 @preconcurrency import ScreenCaptureKit
-import SQLite
+
+// import SQLite
 
 struct Window {
   let id: Int
@@ -15,7 +16,7 @@ struct Window {
 }
 
 struct Snapshot {
-  let timestamp: Int
+  let timestamp: Int  // milliseconds
   let windows: [Int: Window]
 
   init(timestamp: Int, windows: [Int: Window]) {
@@ -30,12 +31,7 @@ enum RecordingError: Error {
 
 actor Recorder {
   var isRecording = true
-  private let interval: TimeInterval
   private var lastSnapshot = Snapshot(timestamp: 0, windows: [:])
-
-  init(interval: TimeInterval) {
-    self.interval = interval
-  }
 
   func setRecording(_ status: Bool) {
     isRecording = status
@@ -43,11 +39,6 @@ actor Recorder {
 
   func record() async throws {
     if !isRecording {
-      return
-    }
-
-    if isIdle() {
-      print("Idle; skipping...")
       return
     }
 
@@ -61,7 +52,7 @@ actor Recorder {
   }
 
   private func capture() async throws -> Snapshot {
-    let timestamp = Int(Date().timeIntervalSince1970)
+    let timestamp = Int(Date().timeIntervalSince1970 * 1000)  // milliseconds
     var windows: [Int: Window] = [:]
     let appBlacklist = ["com.apple.WindowManager"]
 
@@ -69,7 +60,8 @@ actor Recorder {
       throw RecordingError.infoError("Cannot get frotnmost application ID")
     }
 
-    let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
+    let content = try await SCShareableContent.excludingDesktopWindows(
+      true, onScreenWindowsOnly: true)
     for window in content.windows {
       // This number is a total guess. It seems that normal app windows are 0 and
       // most system-level windows (dock, etc) are 25. Exceptions include the
@@ -126,45 +118,63 @@ actor Recorder {
     }
     return output.stringValue
   }
+}
 
-  private func isIdle() -> Bool {
-    let events: [CGEventType] = [
-      .keyDown,
+class RecorderController {
+  private let recorder = Recorder()
+  private let minInterval: TimeInterval = 1
+  private var lastSnapshot = Date(timeIntervalSince1970: 0)
+  private var monitor: Any?
 
-      .leftMouseDown,
-      .rightMouseDown,
-      .otherMouseDown,
+  init() {
+    setupMonitor()
+  }
 
-      .leftMouseDragged,
-      .rightMouseDragged,
-      .otherMouseDragged,
+  private func setupMonitor() {
+    let eventMask =
+      ((1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.leftMouseDown.rawValue)
+        | (1 << CGEventType.rightMouseDown.rawValue) | (1 << CGEventType.otherMouseDown.rawValue))
 
-      // .scrollWheel,
-    ]
+    let eventTap = CGEvent.tapCreate(
+      tap: .cgSessionEventTap,
+      place: .headInsertEventTap,
+      options: .defaultTap,
+      eventsOfInterest: CGEventMask(eventMask),
+      callback: { proxy, type, event, refcon in
+        guard let refcon = refcon else { return Unmanaged.passUnretained(event) }
+        let mySelf = Unmanaged<RecorderController>.fromOpaque(refcon).takeUnretainedValue()
+        mySelf.maybeCapture()
+        return Unmanaged.passUnretained(event)
+      },
+      userInfo: UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
+    )
 
-    for event in events {
-      let time = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: event)
-      if time < interval {
-        return false
+    guard let tap = eventTap else {
+      print("Failed to create event tap. Do you have Accessibility permissions?")
+      exit(1)
+    }
+
+    let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
+    CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
+    CGEvent.tapEnable(tap: tap, enable: true)
+  }
+
+  private func maybeCapture() {
+    let now = Date()
+    guard now.timeIntervalSince(lastSnapshot) >= minInterval else { return }
+    let recorder = self.recorder
+    Task {
+      do {
+        try await recorder.record()
+      } catch {
+        print("Error capturing snapshot: \(error)")
       }
     }
-    return true
+    lastSnapshot = now
   }
 }
 
-let currentPathURL = URL(filePath: FileManager.default.currentDirectoryPath)
-let dbPath = currentPathURL.appending(path: "db.sqlite3")
+let controller = RecorderController()
 
-let recorder = Recorder(interval: 1.0)
-
-Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-  Task {
-    do {
-      try await recorder.record()
-    } catch {
-      print("Error capturing snapshot: \(error)")
-    }
-  }
-}
-
-RunLoop.main.run()
+print("Starting event tap listener...")
+CFRunLoopRun()
