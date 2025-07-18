@@ -4,7 +4,7 @@ import Foundation
 
 // import SQLite
 
-struct Window {
+struct Window: Sendable {
   let id: Int
   let rect: CGRect
   let isActive: Bool
@@ -15,7 +15,55 @@ struct Window {
   var url: String?
 }
 
-struct Snapshot {
+struct Event: Sendable {
+  let timestamp: Int64
+  let type: CGEventType
+  let data: String?
+
+  init(timestamp: Int64, type: CGEventType, data: String?) {
+    self.timestamp = timestamp
+    self.type = type
+    self.data = data
+  }
+
+  init?(cgEvent: CGEvent) {
+    var data: String?
+
+    if cgEvent.type == .keyUp || cgEvent.type == .keyDown {
+      var length: Int = 0
+      var string = [UniChar](repeating: 0, count: 4)
+
+      cgEvent.keyboardGetUnicodeString(maxStringLength: 4,
+        actualStringLength: &length,
+        unicodeString: &string)
+
+      data = String(utf16CodeUnits: string, count: length)
+    }
+
+    self.init(timestamp: Int64(cgEvent.timestamp), type: cgEvent.type, data: data)
+  }
+}
+
+actor EventLogger {
+  private var buffer = [Event]()
+
+  func log(event: Event) async {
+    buffer.append(event)
+    if buffer.count >= 100 {
+      await flushToDisk()
+    }
+  }
+
+  private func flushToDisk() async {
+    // TODO write to disk
+    for event in buffer {
+      print(event)
+    }
+    buffer.removeAll()
+  }
+}
+
+struct Snapshot: Sendable {
   let timestamp: Int  // milliseconds
   let windows: [Int: Window]
 
@@ -120,17 +168,14 @@ actor Recorder {
   }
 }
 
-class RecorderController {
+@MainActor
+final class RecorderController {
   private let recorder = Recorder()
+  private let eventLogger = EventLogger()
   private let minInterval: TimeInterval = 1
   private var lastSnapshot = Date(timeIntervalSince1970: 0)
-  private var monitor: Any?
 
   init() {
-    setupMonitor()
-  }
-
-  private func setupMonitor() {
     let eventMask =
       ((1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.leftMouseDown.rawValue)
         | (1 << CGEventType.rightMouseDown.rawValue) | (1 << CGEventType.otherMouseDown.rawValue))
@@ -140,11 +185,16 @@ class RecorderController {
       place: .headInsertEventTap,
       options: .defaultTap,
       eventsOfInterest: CGEventMask(eventMask),
-      callback: { proxy, type, event, refcon in
-        guard let refcon = refcon else { return Unmanaged.passUnretained(event) }
-        let mySelf = Unmanaged<RecorderController>.fromOpaque(refcon).takeUnretainedValue()
-        mySelf.maybeCapture()
-        return Unmanaged.passUnretained(event)
+      callback: { _, _, cgEvent, refcon in
+        guard let refcon = refcon else { return Unmanaged.passUnretained(cgEvent) }
+        let controller = Unmanaged<RecorderController>
+          .fromOpaque(refcon)
+          .takeUnretainedValue()
+        let event = Event(cgEvent: cgEvent)
+        Task { @MainActor in
+          await controller.handle(event: event)
+        }
+        return Unmanaged.passUnretained(cgEvent)
       },
       userInfo: UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
     )
@@ -159,18 +209,24 @@ class RecorderController {
     CGEvent.tapEnable(tap: tap, enable: true)
   }
 
-  private func maybeCapture() {
-    let now = Date()
-    guard now.timeIntervalSince(lastSnapshot) >= minInterval else { return }
-    let recorder = self.recorder
-    Task {
-      do {
-        try await recorder.record()
-      } catch {
-        print("Error capturing snapshot: \(error)")
-      }
+  private func handle(event: Event?) async {
+    // log event
+    if let event = event {
+      await eventLogger.log(event: event)
     }
-    lastSnapshot = now
+
+    // maybe capture screen
+    // let now = Date()
+    // guard now.timeIntervalSince(lastSnapshot) >= minInterval else { return }
+    // let recorder = self.recorder
+    // Task {
+    //   do {
+    //     try await recorder.record()
+    //   } catch {
+    //     print("Error capturing snapshot: \(error)")
+    //   }
+    // }
+    // lastSnapshot = now
   }
 }
 
