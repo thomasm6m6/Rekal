@@ -144,7 +144,11 @@ actor Recorder {
     var windows: [Int: Window] = [:]
     let appBlacklist = ["com.apple.WindowManager"]
 
-    guard let frontmostAppPID = NSWorkspace.shared.frontmostApplication?.processIdentifier else {
+    let frontmostAppPID: pid_t? = await MainActor.run {
+      NSWorkspace.shared.frontmostApplication?.processIdentifier
+    }
+
+    guard let frontmostAppPID = frontmostAppPID else {
       throw RecordingError.infoError("Cannot get frotnmost application ID")
     }
 
@@ -176,7 +180,7 @@ actor Recorder {
       if app.bundleIdentifier == "com.google.Chrome" {
         if let lastWindow = lastSnapshot.windows[id], title == lastWindow.title {
           windowInfo.url = lastWindow.url
-        } else if let url = getBrowserURL() {
+        } else if let url = await getBrowserURL() {
           windowInfo.url = url
         }
       }
@@ -192,19 +196,21 @@ actor Recorder {
     return snapshot
   }
 
-  private func getBrowserURL() -> String? {
-    let script = "tell application \"Google Chrome\" to get URL of active tab of front window"
-    var error: NSDictionary?
-    guard let scriptObject = NSAppleScript(source: script) else {
-      print("Error constructing AppleScript")
-      return nil
+  private func getBrowserURL() async -> String? {
+    await MainActor.run {
+      let script = "tell application \"Google Chrome\" to get URL of active tab of front window"
+      var error: NSDictionary?
+      guard let scriptObject = NSAppleScript(source: script) else {
+        print("Error constructing AppleScript")
+        return nil
+      }
+      let output = scriptObject.executeAndReturnError(&error)
+      if error != nil {
+        print("Error executing AppleScript: \(String(describing: error))")
+        return nil
+      }
+      return output.stringValue
     }
-    let output = scriptObject.executeAndReturnError(&error)
-    if error != nil {
-      print("Error executing AppleScript: \(String(describing: error))")
-      return nil
-    }
-    return output.stringValue
   }
 }
 
