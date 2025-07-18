@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 @preconcurrency import ScreenCaptureKit
 
-// import SQLite
+import SQLite
 
 struct Window: Sendable {
   let id: Int
@@ -45,21 +45,61 @@ struct Event: Sendable {
 }
 
 actor EventLogger {
-  private var buffer = [Event]()
+  private var db: Connection
+  private let events = Table("events")
+  private let id = Expression<Int64>("id")
+  private let timestamp = Expression<Int64>("timestamp")
+  private let type = Expression<Int64>("type")
+  private let data = Expression<String?>("data")
 
-  func log(event: Event) async {
-    buffer.append(event)
-    if buffer.count >= 100 {
-      await flushToDisk()
+  init() {
+    do {
+      // Using :memory: for in-memory database
+      db = try Connection(.inMemory)
+
+      // Create table
+      try db.run(events.create(ifNotExists: true) { t in
+        t.column(id, primaryKey: true)
+        t.column(timestamp)
+        t.column(type)
+        t.column(data)
+      })
+    } catch {
+      // This is a critical error, so we might want to crash
+      fatalError("Failed to initialize database: \(error)")
     }
   }
 
-  private func flushToDisk() async {
-    // TODO write to disk
-    for event in buffer {
-      print(event)
+  func log(event: Event) async {
+    do {
+      let insert = events.insert(
+        timestamp <- event.timestamp,
+        type <- Int64(event.type.rawValue),
+        data <- event.data
+      )
+      try db.run(insert)
+    } catch {
+      print("Failed to log event to database: \(error)")
     }
-    buffer.removeAll()
+  }
+
+  func backupToDisk() async {
+    do {
+      let fileManager = FileManager.default
+      guard let appSupportURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+        print("Could not get Application Support directory")
+        return
+      }
+      let dbFolder = appSupportURL.appendingPathComponent("rekal")
+      try fileManager.createDirectory(at: dbFolder, withIntermediateDirectories: true, attributes: nil)
+      let dbURL = dbFolder.appendingPathComponent("rekal.sqlite3")
+
+      let diskDb = try Connection(dbURL.path)
+      try db.backup(to: diskDb)
+      print("Database backed up to \(dbURL.path)")
+    } catch {
+      print("Backup failed: \(error)")
+    }
   }
 }
 
@@ -174,6 +214,7 @@ final class RecorderController {
   private let eventLogger = EventLogger()
   private let minInterval: TimeInterval = 1
   private var lastSnapshot = Date(timeIntervalSince1970: 0)
+  private var backupTimer: Timer?
 
   init() {
     let eventMask =
@@ -207,6 +248,16 @@ final class RecorderController {
     let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
     CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
     CGEvent.tapEnable(tap: tap, enable: true)
+
+    backupTimer = Timer.scheduledTimer(withTimeInterval: 300.0, repeats: true) { [weak self] _ in
+      Task {
+        await self?.eventLogger.backupToDisk()
+      }
+    }
+  }
+
+  deinit {
+    backupTimer?.invalidate()
   }
 
   private func handle(event: Event?) async {
