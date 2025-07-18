@@ -1,7 +1,6 @@
 import CoreGraphics
 import Foundation
 @preconcurrency import ScreenCaptureKit
-
 import SQLite
 
 struct Window: Sendable {
@@ -29,6 +28,7 @@ struct Event: Sendable {
   init?(cgEvent: CGEvent) {
     var data: String?
 
+    // TODO key modifiers (maybe make a separate var for keycodes or something?)
     if cgEvent.type == .keyUp || cgEvent.type == .keyDown {
       var length: Int = 0
       var string = [UniChar](repeating: 0, count: 4)
@@ -45,37 +45,45 @@ struct Event: Sendable {
 }
 
 actor EventLogger {
+  private static let events = Table("events")
+  private static let id = Expression<Int64>("id")
+  private static let timestamp = Expression<Int64>("timestamp")
+  private static let type = Expression<Int64>("type")
+  private static let data = Expression<String?>("data")
+
   private var db: Connection
-  private let events = Table("events")
-  private let id = Expression<Int64>("id")
-  private let timestamp = Expression<Int64>("timestamp")
-  private let type = Expression<Int64>("type")
-  private let data = Expression<String?>("data")
+  private let flushInterval: Duration
+  private var flushTask: Task<Void, Never>?
 
-  init() {
+  init(every seconds: TimeInterval = 300) {
+    self.flushInterval = .seconds(Int64(seconds))
+
     do {
-      // Using :memory: for in-memory database
       db = try Connection(.inMemory)
-
-      // Create table
-      try db.run(events.create(ifNotExists: true) { t in
-        t.column(id, primaryKey: true)
-        t.column(timestamp)
-        t.column(type)
-        t.column(data)
+      try db.run(Self.events.create(ifNotExists: true) { t in
+        t.column(Self.id, primaryKey: true)
+        t.column(Self.timestamp)
+        t.column(Self.type)
+        t.column(Self.data)
       })
     } catch {
       // This is a critical error, so we might want to crash
       fatalError("Failed to initialize database: \(error)")
     }
+
+    startFlushLoop()
   }
 
-  func log(event: Event) async {
+  deinit {
+    flushTask?.cancel()
+  }
+
+  func log(_ event: Event) {
     do {
-      let insert = events.insert(
-        timestamp <- event.timestamp,
-        type <- Int64(event.type.rawValue),
-        data <- event.data
+      let insert = Self.events.insert(
+        Self.timestamp <- event.timestamp,
+        Self.type <- Int64(event.type.rawValue),
+        Self.data <- event.data
       )
       try db.run(insert)
     } catch {
@@ -83,22 +91,42 @@ actor EventLogger {
     }
   }
 
-  func backupToDisk() async {
+  func flush() {
     do {
-      let fileManager = FileManager.default
-      guard let appSupportURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-        print("Could not get Application Support directory")
-        return
-      }
-      let dbFolder = appSupportURL.appendingPathComponent("rekal")
-      try fileManager.createDirectory(at: dbFolder, withIntermediateDirectories: true, attributes: nil)
-      let dbURL = dbFolder.appendingPathComponent("rekal.sqlite3")
+      let rows = Array(try db.prepare(Self.events))
+      guard !rows.isEmpty else { return }
 
-      let diskDb = try Connection(dbURL.path)
-      try db.backup(to: diskDb)
-      print("Database backed up to \(dbURL.path)")
+      print("FLUSHING \(rows.count) EVENTS @ \(Date())")
+      for row in rows {
+        let type = CGEventType(rawValue: UInt32(row[Self.type])) ?? .null
+        print("timestamp: \(row[Self.timestamp]), type: \(type), data: \(row[Self.data] ?? "nil")")
+      }
+
+      try db.run(Self.events.delete())
+      print("End flush")
+      // let fileManager = FileManager.default
+      // guard let appSupportURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+      //   print("Could not get Application Support directory")
+      //   return
+      // }
+      // let dbFolder = appSupportURL.appendingPathComponent("rekal")
+      // try fileManager.createDirectory(at: dbFolder, withIntermediateDirectories: true, attributes: nil)
+      // let dbURL = dbFolder.appendingPathComponent("rekal.sqlite3")
+
+      // let diskDb = try Connection(dbURL.path)
+      // try db.backup(to: diskDb)
+      // print("Database backed up to \(dbURL.path)")
     } catch {
       print("Backup failed: \(error)")
+    }
+  }
+
+  private nonisolated func startFlushLoop() {
+    Task.detached { [interval = flushInterval] in
+      while !Task.isCancelled {
+        try? await Task.sleep(for: interval)
+        await self.flush()
+      }
     }
   }
 }
@@ -154,13 +182,10 @@ actor Recorder {
 
     let content = try await SCShareableContent.excludingDesktopWindows(
       true, onScreenWindowsOnly: true)
-    for window in content.windows {
-      // This number is a total guess. It seems that normal app windows are 0 and
-      // most system-level windows (dock, etc) are 25. Exceptions include the
-      // ChatGPT option+space window (8), Spotlight (23), etc. Menubar is 24.
-      if window.windowLayer > 23 {
-        continue
-      }
+    // The number 23 is a total guess. It seems that normal app windows are 0
+    // and most system-level windows (dock, etc) are 25. Exceptions include the
+    // ChatGPT option+space window (8), Spotlight (23), etc. Menubar is 24.
+    for window in content.windows where window.windowLayer <= 23 {
       guard let title = window.title, let app = window.owningApplication else {
         throw RecordingError.infoError("Cannot get window title or app")
       }
@@ -217,36 +242,41 @@ actor Recorder {
 @MainActor
 final class RecorderController {
   private let recorder = Recorder()
-  private let eventLogger = EventLogger()
+  private let eventLogger: EventLogger
   private let minInterval: TimeInterval = 1
   private var lastSnapshot = Date(timeIntervalSince1970: 0)
-  private var backupTimer: Timer?
 
-  init() {
+  init(flushEvery seconds: TimeInterval = 300) {
+    self.eventLogger = EventLogger(every: seconds)
+    setupEventTap()
+  }
+
+  private func setupEventTap() {
     let eventMask =
       ((1 << CGEventType.keyDown.rawValue) | (1 << CGEventType.leftMouseDown.rawValue)
         | (1 << CGEventType.rightMouseDown.rawValue) | (1 << CGEventType.otherMouseDown.rawValue))
 
-    let eventTap = CGEvent.tapCreate(
+    let tap = CGEvent.tapCreate(
       tap: .cgSessionEventTap,
       place: .headInsertEventTap,
       options: .defaultTap,
       eventsOfInterest: CGEventMask(eventMask),
       callback: { _, _, cgEvent, refcon in
-        guard let refcon = refcon else { return Unmanaged.passUnretained(cgEvent) }
+        guard let refcon = refcon else {
+          return Unmanaged.passUnretained(cgEvent)
+        }
         let controller = Unmanaged<RecorderController>
           .fromOpaque(refcon)
           .takeUnretainedValue()
-        let event = Event(cgEvent: cgEvent)
-        Task { @MainActor in
-          await controller.handle(event: event)
+        if let event = Event(cgEvent: cgEvent) {
+          Task { await controller.handle(event: event) }
         }
         return Unmanaged.passUnretained(cgEvent)
       },
       userInfo: UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
     )
 
-    guard let tap = eventTap else {
+    guard let tap else {
       print("Failed to create event tap. Do you have Accessibility permissions?")
       exit(1)
     }
@@ -254,23 +284,11 @@ final class RecorderController {
     let runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
     CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
     CGEvent.tapEnable(tap: tap, enable: true)
-
-    backupTimer = Timer.scheduledTimer(withTimeInterval: 300.0, repeats: true) { [weak self] _ in
-      Task {
-        await self?.eventLogger.backupToDisk()
-      }
-    }
   }
 
-  deinit {
-    backupTimer?.invalidate()
-  }
-
-  private func handle(event: Event?) async {
+  private func handle(event: Event) async {
     // log event
-    if let event = event {
-      await eventLogger.log(event: event)
-    }
+    await eventLogger.log(event)
 
     // maybe capture screen
     // let now = Date()
@@ -287,7 +305,7 @@ final class RecorderController {
   }
 }
 
-let controller = RecorderController()
+let controller = RecorderController(flushEvery: 10)
 
 print("Starting event tap listener...")
 CFRunLoopRun()
